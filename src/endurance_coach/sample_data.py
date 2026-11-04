@@ -1,0 +1,162 @@
+"""Deterministic synthetic activities used by the tutorial and tests."""
+
+import json
+from pathlib import Path
+
+from endurance_coach.models import TrainingActivity
+
+
+def synthetic_activities() -> list[TrainingActivity]:
+    """Return ten realistic rides spanning the 14 days ending 2026-11-03."""
+    rows = [
+        (
+            "ride-001",
+            "2026-10-21T07:00:00+02:00",
+            "Steady endurance",
+            "endurance",
+            75,
+            36.2,
+            310,
+            166,
+            174,
+            138,
+            4,
+        ),
+        (
+            "ride-002",
+            "2026-10-22T07:15:00+02:00",
+            "Easy spin",
+            "recovery",
+            45,
+            19.4,
+            90,
+            None,
+            None,
+            119,
+            2,
+        ),
+        (
+            "ride-003",
+            "2026-10-24T09:00:00+02:00",
+            "VO2 intervals",
+            "intervals",
+            70,
+            31.8,
+            420,
+            196,
+            225,
+            158,
+            8,
+        ),
+        (
+            "ride-004",
+            "2026-10-25T08:30:00+01:00",
+            "Sunday long ride",
+            "long_ride",
+            180,
+            87.3,
+            1_120,
+            158,
+            171,
+            145,
+            6,
+        ),
+        (
+            "ride-005",
+            "2026-10-27T07:10:00+01:00",
+            "Recovery coffee ride",
+            "recovery",
+            50,
+            21.1,
+            140,
+            118,
+            124,
+            112,
+            2,
+        ),
+        (
+            "ride-006",
+            "2026-10-28T06:50:00+01:00",
+            "Tempo blocks",
+            "tempo",
+            90,
+            43.7,
+            510,
+            185,
+            199,
+            151,
+            7,
+        ),
+        (
+            "ride-007",
+            "2026-10-30T07:00:00+01:00",
+            "Threshold repeats",
+            "intervals",
+            65,
+            29.6,
+            360,
+            201,
+            222,
+            162,
+            8,
+        ),
+        (
+            "ride-008",
+            "2026-10-31T09:20:00+01:00",
+            "Aerobic base",
+            "endurance",
+            80,
+            38.5,
+            460,
+            163,
+            170,
+            137,
+            4,
+        ),
+        (
+            "ride-009",
+            "2026-11-01T08:15:00+01:00",
+            "Hilly long ride",
+            "long_ride",
+            210,
+            96.8,
+            1_680,
+            161,
+            178,
+            148,
+            7,
+        ),
+        (
+            "ride-010",
+            "2026-11-03T07:20:00+01:00",
+            "Leg loosener",
+            "recovery",
+            45,
+            18.7,
+            100,
+            None,
+            None,
+            116,
+            2,
+        ),
+    ]
+    keys = (
+        "activity_id",
+        "started_at",
+        "title",
+        "ride_kind",
+        "duration_minutes",
+        "distance_km",
+        "elevation_gain_m",
+        "average_power_w",
+        "normalized_power_w",
+        "average_heart_rate_bpm",
+        "perceived_exertion",
+    )
+    return [TrainingActivity.model_validate(dict(zip(keys, row, strict=True))) for row in rows]
+
+
+def write_synthetic_activities(destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = [activity.model_dump(mode="json") for activity in synthetic_activities()]
+    destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
