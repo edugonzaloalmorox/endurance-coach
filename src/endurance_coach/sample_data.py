@@ -153,7 +153,13 @@ def synthetic_activities() -> list[TrainingActivity]:
         "average_heart_rate_bpm",
         "perceived_exertion",
     )
-    return [TrainingActivity.model_validate(dict(zip(keys, row, strict=True))) for row in rows]
+    activities = []
+    for row in rows:
+        payload = dict(zip(keys, row, strict=True))
+        payload["source"] = "synthetic"
+        payload["source_activity_id"] = payload["activity_id"]
+        activities.append(TrainingActivity.model_validate(payload))
+    return activities
 
 
 def write_synthetic_activities(destination: Path) -> None:

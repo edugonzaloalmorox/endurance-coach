@@ -5,5 +5,16 @@ __pycache__/
 .ruff_cache/
 .coverage
 .env
+.env.*
+!.env.example
+.DS_Store
+*.egg-info/
+build/
 dist/
+htmlcov/
+*.log
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+data/*.db
 

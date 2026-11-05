@@ -1,6 +1,8 @@
 [
   {
     "activity_id": "ride-001",
+    "source": "synthetic",
+    "source_activity_id": "ride-001",
     "started_at": "2026-10-21T07:00:00+02:00",
     "title": "Steady endurance",
     "ride_kind": "endurance",
@@ -14,6 +16,8 @@
   },
   {
     "activity_id": "ride-002",
+    "source": "synthetic",
+    "source_activity_id": "ride-002",
     "started_at": "2026-10-22T07:15:00+02:00",
     "title": "Easy spin",
     "ride_kind": "recovery",
@@ -27,6 +31,8 @@
   },
   {
     "activity_id": "ride-003",
+    "source": "synthetic",
+    "source_activity_id": "ride-003",
     "started_at": "2026-10-24T09:00:00+02:00",
     "title": "VO2 intervals",
     "ride_kind": "intervals",
@@ -40,6 +46,8 @@
   },
   {
     "activity_id": "ride-004",
+    "source": "synthetic",
+    "source_activity_id": "ride-004",
     "started_at": "2026-10-25T08:30:00+01:00",
     "title": "Sunday long ride",
     "ride_kind": "long_ride",
@@ -53,6 +61,8 @@
   },
   {
     "activity_id": "ride-005",
+    "source": "synthetic",
+    "source_activity_id": "ride-005",
     "started_at": "2026-10-27T07:10:00+01:00",
     "title": "Recovery coffee ride",
     "ride_kind": "recovery",
@@ -66,6 +76,8 @@
   },
   {
     "activity_id": "ride-006",
+    "source": "synthetic",
+    "source_activity_id": "ride-006",
     "started_at": "2026-10-28T06:50:00+01:00",
     "title": "Tempo blocks",
     "ride_kind": "tempo",
@@ -79,6 +91,8 @@
   },
   {
     "activity_id": "ride-007",
+    "source": "synthetic",
+    "source_activity_id": "ride-007",
     "started_at": "2026-10-30T07:00:00+01:00",
     "title": "Threshold repeats",
     "ride_kind": "intervals",
@@ -92,6 +106,8 @@
   },
   {
     "activity_id": "ride-008",
+    "source": "synthetic",
+    "source_activity_id": "ride-008",
     "started_at": "2026-10-31T09:20:00+01:00",
     "title": "Aerobic base",
     "ride_kind": "endurance",
@@ -105,6 +121,8 @@
   },
   {
     "activity_id": "ride-009",
+    "source": "synthetic",
+    "source_activity_id": "ride-009",
     "started_at": "2026-11-01T08:15:00+01:00",
     "title": "Hilly long ride",
     "ride_kind": "long_ride",
@@ -118,6 +136,8 @@
   },
   {
     "activity_id": "ride-010",
+    "source": "synthetic",
+    "source_activity_id": "ride-010",
     "started_at": "2026-11-03T07:20:00+01:00",
     "title": "Leg loosener",
     "ride_kind": "recovery",
