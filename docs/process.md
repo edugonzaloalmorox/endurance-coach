@@ -1,87 +1,120 @@
-# Endurance Coach — Issue Development Process
+# Endurance Coach — Dark Software Factory Process
 
-## Purpose
+## Goal
 
-Develop Endurance Coach **one GitHub issue at a time** while preserving the guided-learning model. Codex prepares scaffolding, contracts, fixtures, and tests; the human developer implements core agent/skill mechanisms and approves consequential actions.
+Turn a GitHub issue into a verified, reproducible change using autonomous PM → Engineer → QA work, with human intervention reserved for architecture, risk, policy, or unresolved ambiguity. The human evaluates product behavior and evidence rather than routinely reading implementation details.
 
-Do not treat the backlog as permission to autonomously complete all issues.
+**This is a delivery policy, not proof that unattended execution is configured.** A Codex session may orchestrate one issue today. Automated issue triggers, isolated runners, credential scopes, and PR automation must be implemented and validated separately before claiming continuous operation.
 
 ## Source of truth
 
-- **GitHub Issues** define tasks, ownership, dependencies, and acceptance criteria.
-- **`AGENTS.md`** defines project-wide instructions and learning boundaries.
-- **The current issue** is the unit of implementation and review.
-- **`main`** is the stable integration branch; use a short-lived branch per issue when working with Git.
+- GitHub Issues: backlog, acceptance criteria, dependencies, discussion, and human decisions.
+- `AGENTS.md`: project guardrails.
+- Role documents in `docs/agents/`: role-specific responsibilities.
+- `main`: protected integration branch.
+- CI/QA evidence: objective verification for the exact commit being reviewed.
 
-Read the issue's acceptance criteria **before implementation and again before verification**.
+## Lifecycle states
 
-## Roles
+`BACKLOG → READY → SPECIFIED → IMPLEMENTING → VERIFYING → PR_READY → DONE`
 
-**Orchestrator**
-- Coordinates PM → Engineer → QA for a single selected issue.
-- Records handoffs and blockers; does not groom, implement, or verify on behalf of those roles.
-- Uses actual subagents where supported; otherwise makes role handoffs explicit.
-- Does not close an issue or launch another one without the human's authorization.
+Alternate paths:
+- `NEEDS_HUMAN`: decisions or permissions needed; stop work without holding an active worker open.
+- `FAILED`: implementation or verification failure; retry within limits or escalate.
+- `BLOCKED`: missing dependencies, credentials, or environment support.
 
-**PM** (`docs/agents/pm.md`)
-- Checks milestone dependencies and ensures the issue is small enough to verify.
-- Defines the scope, acceptance criteria, deliverables, and out-of-scope work.
-- Identifies **Codex-owned** vs. **human-owned** implementation steps.
-- Flags new dependencies, external permissions, and unclear requirements.
+State transitions, retry limits, and permissions should ultimately be enforced by deterministic orchestration code rather than model judgment alone.
 
-**Engineer** (`docs/agents/software-engineer.md`)
-- Works only on a groomed and human-approved issue.
-- For human-owned learning tasks, prepares interfaces and tests or offers review; **does not implement the core exercise** without an explicit request.
-- Implements supporting code, runs focused checks, and reports limitations.
-- Commits meaningful increments on the issue branch after authorization; does not push/merge/close issues automatically.
+## One-issue execution loop
 
-**QA Engineer** (`docs/agents/qa-engineer.md`)
-- Checks behavior against the issue's acceptance criteria and executes relevant tests.
-- Produces **PASS** or **FAIL**, with reproducible evidence.
-- Does not modify code, weaken tests, or redefine acceptance criteria to force a PASS.
+1. **Select:** Orchestrator chooses a dependency-ready issue. Do not skip ahead to blocked issues. Start with one implementation issue at a time until isolation is proven.
+2. **Groom (PM):** Produce an executable specification: intended outcome, out-of-scope, acceptance scenarios, data contracts, dependencies, assumptions, risk level, and concrete demonstration evidence.
+3. **Risk gate:** If the specification requires architecture changes, new credentials/scopes, security-sensitive behavior, or other listed escalations, mark `NEEDS_HUMAN` and present a short decision request. Otherwise proceed autonomously.
+4. **Prepare isolated environment:** Create an issue-specific branch/worktree and keep a log of the base commit and environment. Never edit `main` directly.
+5. **Implement (Engineer):** Complete the code, tests, fixtures and documentation necessary for the issue. Run focused checks and the relevant project commands. The Engineer owns core mechanisms, including Agent Skills and Ollama integration.
+6. **Verify (QA):** Use a separate session or worker where possible. Independently inspect spec compliance and run tests against the exact proposed commit. QA outputs `PASS` or `FAIL`, with evidence, and never edits code.
+7. **On FAIL:** Return the report to the Engineer for correction, then rerun QA. Allow no more than **2 automated fix attempts** by default; escalate after repeated failure or unreproducible checks.
+8. **On PASS:** Prepare or update a PR, attach an evidence report, and mark `PR_READY`. Validate all required CI and policy checks for the final commit. A green unit-test run alone is not sufficient proof of the intended outcome.
+9. **Integrate:** By default the human authorizes the merge based on specification, demo, QA evidence and risk summary. The issue can close when the change is integrated and behavior is verified. Automerge for low-risk issues requires a separately approved policy, configured branch protection, and required checks.
+10. **Continue:** Orchestrator can select the next ready issue once the prior issue is integrated or the environment has proven safe isolation. It must honor stop conditions, dependencies and escalation states.
 
-## Lifecycle — one issue
+## Human escalation policy
 
-1. **Select:** Human selects the next ready GitHub issue. Verify dependencies and branch state; do not automatically select the entire backlog.
-2. **Groom (PM):** Read the issue, determine scope, acceptance criteria, dependencies, and whether the task contains a human-learning exercise.
-3. **Approve scope (human):** The human approves the groomed plan. If unclear, resolve ownership before coding.
-4. **Prepare branch:** Update local `main` and create a branch such as `feat/m1-05-skill-loader`; avoid mixing unrelated issues.
-5. **Implement (Engineer + human):** Execute only the approved work. Codex may write scaffolding, fixtures, and tests; the human implements reserved mechanisms. Work in small steps and commit regularly **with authorization**.
-6. **Verify (QA):** Run relevant checks, review tests and acceptance criteria, and report evidence-backed **PASS** or **FAIL**.
-7. **On FAIL:** Return the QA findings to the Engineer/human as appropriate. Fix the issue and repeat step 6. Never bypass failing tests or assign fixes to QA.
-8. **On PASS:** Summarize results, outstanding limitations, and learning outcomes. Present the changes to the human for review. QA PASS does not grant permission to merge or close.
-9. **Integrate and close (human-approved):** Create/review a PR as appropriate; merge only after explicit authorization. Close the GitHub issue only once QA has passed, the required review is complete, and the change is integrated (or the human explicitly authorizes another closure path).
-10. **Stop:** Await human selection of the next issue. Do not automatically repeat the lifecycle for all remaining issues.
+**Escalate for:**
+- Significant architecture or interface changes.
+- New dependencies or model/provider changes outside approved constraints.
+- Secrets, OAuth scopes, network permissions or third-party writes.
+- Ambiguous/conflicting acceptance criteria affecting behavior.
+- Training-safety, athlete approval, or personal-data protections.
+- Destructive operations, failing CI that cannot be resolved, or exhausted retry limits.
 
-## Required handoff information
+**Do not escalate for:** naming, routine refactoring inside agreed boundaries, writing ordinary unit tests, or simple implementation tradeoffs covered by the spec.
 
-**PM → Engineer:** issue ID/link; task goal; acceptance criteria; dependencies; implementation boundaries; owner of each learning-critical step; files likely affected.
+## Handoff contracts
 
-**Engineer → QA:** summary of changes; changed files; commands executed and real results; tests added; known limitations; human-owned tasks still incomplete.
+**PM → Engineer**
+- Issue link and dependency status.
+- Spec and acceptance scenarios with observable expected results.
+- Allowed architecture and interfaces.
+- Risk classification, assumptions and explicit out-of-scope.
 
-**QA → Orchestrator/human:** `PASS` or `FAIL`; acceptance-criteria checklist; commands and outcomes; concrete defect reports or unresolved blockers.
+**Engineer → QA**
+- Exact commit SHA and branch.
+- Change summary and files affected.
+- Commands executed with actual output/exit status.
+- Known limitations and deviations.
 
-## Testing and learning gates
+**QA → Orchestrator**
+- Verdict: PASS or FAIL.
+- Each acceptance criterion mapped to observed evidence.
+- Tests, demos and environment used.
+- Unresolved defects or risks and reproducible failures.
 
-- Read `docs/testing-guidelines.md` **before writing or modifying tests**.
-- Run focused tests during development and `uv run pytest` plus `uv run ruff check .` when the issue is ready for final QA, if available.
-- Offline fixtures and mocks should test agent logic without requiring Ollama, COROS, or Intervals.icu.
-- Do not claim live integrations were validated unless they were actually called successfully.
-- If tests intentionally fail because a human-owned exercise is incomplete, report that state honestly; the issue remains **in progress**, not PASS.
-- For a human-learning issue, the developer should be able to explain inputs, outputs, failure modes, and the boundary between a skill, a tool, and Python business logic before closure.
+**Orchestrator → Human (only as needed)**
+- Decision request with options and consequences, or PR-ready evidence summary with the recommended action.
+- Never send raw internal chain-of-thought. Include concise rationale and observed facts.
 
-## Safeguards
+## Required PR evidence
 
-- No new dependencies without asking the human first.
-- No remote source writes to COROS or Intervals.icu during the MVP.
-- No autonomous plan changes. Proposals must be reviewed and explicitly approved before changing local plans.
-- No secrets or sensitive athlete information in commits, debug traces, or test fixtures.
-- Do not commit to `main` directly unless the human explicitly requests it.
+A PR should provide:
 
-## Example: M1-05 — SkillLoader
+1. Issue reference and one-paragraph behavioral summary.
+2. Acceptance-criteria checklist with evidence links or logs.
+3. Tests/CI run against the current commit, including failures and limitations.
+4. Demonstration of user-observable behavior (CLI output, reproducible command, or suitable artifact).
+5. Security and data-handling notes for relevant changes.
+6. Architecture deviations and decisions escalated to the human.
+7. QA verdict and remaining risks.
 
-- **PM:** Groom discovery, frontmatter parsing, safe paths, and progressive-loading acceptance criteria.
-- **Codex Engineer:** Create the loader interface, fixtures, and tests; leave core discovery/loading methods for the developer.
-- **Human developer:** Implement discovery and `load_skill()`.
-- **QA:** Check valid metadata, unknown names, malformed files, traversal protections, and that full instructions are loaded only on activation.
-- **Orchestrator:** Report QA result; await human review and authorization before closing the issue.
+A PASS is invalid if QA merely repeats the Engineer's claims without checking them.
+
+## Monitoring and factory health
+
+Track per milestone:
+- Lead time: READY → PR_READY and READY → DONE.
+- First-pass QA rate and mean retries per issue.
+- CI failure and regression rate after merge.
+- Human escalations per issue, distinguishing necessary and avoidable interruptions.
+- Rework, reopened issues, and time spent fixing recurrent failures.
+- Time or cost per completed issue where observable.
+- Product-level acceptance: does the cycling coach behave as specified with synthetic scenarios and eventually real read-only integrations?
+
+Review the factory process when these metrics deteriorate; do not optimize only for issue throughput.
+
+## Product-specific gates
+
+- Test skill discovery, on-demand skill loading, correct tool use, and structured recommendation validation with deterministic fixtures.
+- Test incomplete/missing sports metrics, duplicate activity reconciliation, and unsafe training recommendations.
+- Verify that no training-plan changes are applied without explicit athlete approval.
+- Use mock COROS/Intervals.icu clients in CI. Live access must use properly scoped credentials and must not be claimed as tested until observed.
+- Run `uv run pytest` and `uv run ruff check .` when configured; include security checks appropriate to the change.
+
+## Rollout of factory autonomy
+
+**Stage 1 — Agent-run issue, human merge:** Agents handle PM/Engineer/QA end-to-end for one issue; human inspects evidence and authorizes merging. Establish independent QA and trustworthy artifacts.
+
+**Stage 2 — Repeatable pipeline:** Introduce explicit issue states, isolated runs, PR automation, CI branch protection and measured retry/escalation behavior. Orchestrator automatically selects the next ready issue.
+
+**Stage 3 — Selective autonomous integration:** Consider auto-merging narrowly defined low-risk changes only after the human explicitly enables a tested policy. Retain human approval for architecture, security, training safety and third-party data access.
+
+Do not describe Stage 2 or 3 as operational before the enabling infrastructure has been implemented and tested.
