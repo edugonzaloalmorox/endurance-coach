@@ -2,12 +2,14 @@
 
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 type JsonValue = (
     str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 )
+type NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class StrictModel(BaseModel):
@@ -131,23 +133,100 @@ class ToolResult(StrictModel):
     is_error: bool = False
 
 
+class UncertaintyLevel(StrEnum):
+    """Supported confidence levels for a workout recommendation."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RecommendationEvidence(StrictModel):
+    """One factual observation supporting a workout recommendation."""
+
+    observation: NonEmptyText = Field(
+        description="Factual observation used to support the recommendation.",
+    )
+    source: NonEmptyText = Field(
+        description="Metric, activity summary, or other provenance for the observation.",
+    )
+
+
+class RecommendationUncertainty(StrictModel):
+    """Explicit limits on confidence in a workout recommendation."""
+
+    level: UncertaintyLevel = Field(
+        description="Bounded uncertainty level: low, medium, or high.",
+    )
+    reasons: list[NonEmptyText] = Field(
+        default_factory=list,
+        description="Reasons for uncertainty, required for medium or high uncertainty.",
+    )
+
+    @model_validator(mode="after")
+    def non_low_uncertainty_has_a_reason(self) -> "RecommendationUncertainty":
+        """Require an explanation whenever uncertainty is not low."""
+        if self.level is not UncertaintyLevel.LOW and not self.reasons:
+            raise ValueError("medium or high uncertainty requires at least one reason")
+        return self
+
+
 class WorkoutStep(StrictModel):
-    name: str = Field(min_length=1)
-    duration_minutes: int = Field(gt=0)
-    intensity: str = Field(min_length=1)
+    """One timed segment within the recommended workout."""
+
+    name: NonEmptyText = Field(
+        description="Human-readable name of the workout segment.",
+    )
+    duration_minutes: int = Field(
+        gt=0,
+        le=360,
+        description="Positive segment duration in minutes, with a maximum of 360.",
+    )
+    intensity: NonEmptyText = Field(
+        description="Actionable intensity target, such as an RPE or conversational cue.",
+    )
 
 
 class WorkoutRecommendation(StrictModel):
     """Structured output required from the future agent runtime."""
 
-    workout_date: date
-    title: str = Field(min_length=1)
-    ride_kind: RideKind
-    duration_minutes: int = Field(gt=0, le=360)
-    rationale: str = Field(min_length=1)
-    steps: list[WorkoutStep] = Field(min_length=1)
-    warnings: list[str] = Field(default_factory=list)
-    source_skill: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    workout_date: date = Field(description="Calendar date for the proposed workout.")
+    title: NonEmptyText = Field(
+        description="Short human-readable workout title.",
+    )
+    ride_kind: RideKind = Field(
+        description="Workout type selected from the supported cycling ride kinds.",
+    )
+    duration_minutes: int = Field(
+        gt=0,
+        le=360,
+        description="Total workout duration in minutes, from 1 through 360.",
+    )
+    objective: NonEmptyText = Field(
+        description="Training outcome the workout is intended to support.",
+    )
+    rationale: NonEmptyText = Field(
+        description="Explanation connecting the evidence to the proposed workout.",
+    )
+    evidence: list[RecommendationEvidence] = Field(
+        min_length=1,
+        description="Factual observations and their provenance supporting the recommendation.",
+    )
+    uncertainty: RecommendationUncertainty = Field(
+        description="Explicit confidence level and any reasons that limit confidence.",
+    )
+    warnings: list[NonEmptyText] = Field(
+        default_factory=list,
+        description="Missing-data disclosures or safety limitations for the athlete.",
+    )
+    steps: list[WorkoutStep] = Field(
+        min_length=1,
+        description="Ordered timed segments whose durations equal the workout total.",
+    )
+    source_skill: str = Field(
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        description="Runtime coaching skill that produced the recommendation.",
+    )
 
     @model_validator(mode="after")
     def steps_match_total_duration(self) -> "WorkoutRecommendation":
