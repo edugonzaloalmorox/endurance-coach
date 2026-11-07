@@ -6,7 +6,7 @@ Endurance Coach is a Python AI cycling coach for long-distance training and an e
 
 The product's runtime skills in `coach_skills/<skill-name>/SKILL.md` are distinct from development-agent skills that guide Codex. Do not confuse these two systems.
 
-Read `_docs/process.md` before selecting or executing any work.
+Read `docs/process.md` before selecting or executing any work.
 
 ## Commands
 
@@ -54,9 +54,9 @@ Do not ask for human approval for trivial implementation choices already allowed
 
 ## Execution and release rules
 
-- GitHub Issues are the backlog and acceptance source of truth. Follow the lifecycle in `_docs/process.md`.
+- GitHub Issues are the backlog and acceptance source of truth. Follow the lifecycle in `docs/process.md`.
 - Work only on ready issues with satisfied dependencies. Prefer one active implementation issue initially; expand concurrency only with isolated worktrees and reliable CI.
-- Each change must occur in an issue-specific branch or isolated worktree. Never implement directly on `main`.
+- Each change must occur in an issue-specific branch or isolated worktree. Never implement directly on `master`.
 - Do not change acceptance criteria after implementation to manufacture a PASS.
 - Before QA PASS, complete applicable unit/integration tests, linting, safety and secret checks. Verify actual behavior, not just exit codes.
 - Preserve a reproducible **evidence package** with: spec/acceptance mapping, commands and outputs, changed behavior, QA PASS/FAIL, unresolved risks, and human decisions.

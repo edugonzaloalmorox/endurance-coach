@@ -1,7 +1,7 @@
 [project]
 name = "endurance-coach"
 version = "0.1.0"
-description = "A guided Agent Skills learning project for a local AI cycling coach"
+description = "A local AI cycling coach developed through an agent-driven software factory"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -29,7 +29,7 @@ packages = ["src/endurance_coach"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "exercise: intentionally failing learning exercise; implementation is left to the learner",
+    "exercise: deferred executable specification owned by a linked implementation issue",
 ]
 
 [tool.ruff]

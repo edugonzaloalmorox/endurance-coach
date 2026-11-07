@@ -11,7 +11,7 @@ Turn a GitHub issue into a verified, reproducible change using autonomous PM →
 - GitHub Issues: backlog, acceptance criteria, dependencies, discussion, and human decisions.
 - `AGENTS.md`: project guardrails.
 - Role documents in `docs/agents/`: role-specific responsibilities.
-- `main`: protected integration branch.
+- `master`: protected integration branch.
 - CI/QA evidence: objective verification for the exact commit being reviewed.
 
 ## Lifecycle states
@@ -30,7 +30,7 @@ State transitions, retry limits, and permissions should ultimately be enforced b
 1. **Select:** Orchestrator chooses a dependency-ready issue. Do not skip ahead to blocked issues. Start with one implementation issue at a time until isolation is proven.
 2. **Groom (PM):** Produce an executable specification: intended outcome, out-of-scope, acceptance scenarios, data contracts, dependencies, assumptions, risk level, and concrete demonstration evidence.
 3. **Risk gate:** If the specification requires architecture changes, new credentials/scopes, security-sensitive behavior, or other listed escalations, mark `NEEDS_HUMAN` and present a short decision request. Otherwise proceed autonomously.
-4. **Prepare isolated environment:** Create an issue-specific branch/worktree and keep a log of the base commit and environment. Never edit `main` directly.
+4. **Prepare isolated environment:** Create an issue-specific branch/worktree and keep a log of the base commit and environment. Never edit `master` directly.
 5. **Implement (Engineer):** Complete the code, tests, fixtures and documentation necessary for the issue. Run focused checks and the relevant project commands. The Engineer owns core mechanisms, including Agent Skills and Ollama integration.
 6. **Verify (QA):** Use a separate session or worker where possible. Independently inspect spec compliance and run tests against the exact proposed commit. QA outputs `PASS` or `FAIL`, with evidence, and never edits code.
 7. **On FAIL:** Return the report to the Engineer for correction, then rerun QA. Allow no more than **2 automated fix attempts** by default; escalate after repeated failure or unreproducible checks.
