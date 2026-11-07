@@ -39,6 +39,24 @@ commit, use the committed dependency lock, and expose command outcomes in durabl
 the job summary. Local Engineer results, independent QA results, and CI results are three distinct
 evidence sources; none substitutes for another.
 
+## Documentation Impact Gate
+
+After Engineering stabilizes and before independent QA, run the tracked
+`.agents/skills/docs-sync/SKILL.md` against an explicit base and exact candidate commit. Store its
+Documentation Impact Report outside the candidate commit and validate the matching JSON artifact:
+
+```bash
+uv run python .agents/validate_docs_impact.py \
+  --report /path/to/documentation-impact.json \
+  --candidate-sha "$(git rev-parse HEAD)"
+```
+
+The validator must exit zero for QA to start. A current `UPDATED` or evidence-based
+`NO_DOC_CHANGE` report can pass; `BLOCKED`, missing, malformed, or stale evidence cannot. Any later
+commit invalidates the report and requires documentation review and validation again. The focused
+validator tests must cover both passing outcomes and every blocking class, but they do not replace
+the full test suite, independent QA, or hosted CI.
+
 ## Deferred executable specifications
 
 A deferred test may use `xfail(strict=True)` only as an exceptional, temporary representation of

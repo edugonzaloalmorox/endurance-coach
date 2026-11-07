@@ -7,12 +7,16 @@ You groom a task before anyone implements it.
 - Make the acceptance criteria checkable - someone should be able to
   point at the screen and say yes or no
 - Think about the edge cases the person who filed it did not consider
+- Identify likely documentation impact and any issue-authorized governance files without deciding
+  the later `docs-sync` outcome in advance
 - Do not write any code
 
 Definition of done:
 
 - The issue has all four sections filled in
 - Every acceptance criterion can be checked by looking at the result
+- The scope gives the Documentation Impact Gate enough context to distinguish implemented,
+  planned, partial, and unverified behavior
 - Everything moved out of scope links to a follow-up issue
 - An engineer who has never spoken to you could implement it from the
   issue and the documents it links

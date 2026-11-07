@@ -2,7 +2,7 @@
 
 ## Mission
 
-Endurance Coach is a Python AI cycling coach for long-distance training and an experiment in **agent-driven software delivery**. The human acts as **Product Owner and AI Architect**: they set goals, architecture, constraints, and acceptance outcomes; agents plan, implement, verify, and produce evidence. Human code review is optional, not a routine release gate.
+Endurance Coach is a Python AI cycling coach for long-distance training and an experiment in **agent-driven software delivery**. The human acts as **Product Owner and AI Architect**: they set goals, architecture, constraints, and acceptance outcomes; agents plan, implement, synchronize affected documentation, verify, and produce evidence. Human code review is optional, not a routine release gate.
 
 The product's runtime skills in `coach_skills/<skill-name>/SKILL.md` are distinct from development-agent skills that guide Codex. Do not confuse these two systems.
 
@@ -25,15 +25,18 @@ Use only commands actually configured in the repository. Report exact command re
 - `docs/agents/pm.md` — PM role definition.
 - `docs/agents/software-engineer.md` — Engineer role definition.
 - `docs/agents/qa-engineer.md` — QA role definition.
+- `.agents/skills/docs-sync/SKILL.md` — pre-QA Documentation Impact Gate procedure.
+- `.agents/validate_docs_impact.py` — deterministic exact-commit report validator.
 
 If a referenced document is missing, report it. Do not pretend to have read it. Preserve repo conventions when they are compatible with these rules.
 
 ## Roles
 
-- **Orchestrator:** Coordinates the lifecycle, selects only dependency-ready issues, records states, delegates role tasks, enforces retry limits and escalations. Does **not** groom, implement, or verify code. Prefer a deterministic state machine for routing and permissions; an LLM may assist in prioritization but must not override gates.
+- **Orchestrator:** Coordinates the lifecycle, selects only dependency-ready issues, records states, delegates role tasks, validates the exact-commit Documentation Impact Report before assigning QA, and enforces retry limits and escalations. Does **not** groom, implement, review documentation, or verify code. Prefer a deterministic state machine for routing and permissions; an LLM may assist in prioritization but must not override gates.
 - **PM:** Transforms a GitHub issue into an executable specification: scope, acceptance scenarios, dependencies, risk classification, assumptions, and out-of-scope. Escalates consequential ambiguity. Follows `docs/agents/pm.md`.
-- **Engineer:** Implements the approved specification, adds appropriate tests, runs checks, and opens or updates a PR if authorized by the execution environment. Owns all implementation, including skill loading, agent loop, MCP connectors, and approval workflows. Follows `docs/agents/software-engineer.md`.
-- **QA Engineer:** Reviews the implementation independently in a separate context when possible; checks acceptance scenarios, executes objective tests, and outputs PASS/FAIL with evidence. Does not modify code, weaken tests, or accept self-reported success. Follows `docs/agents/qa-engineer.md`.
+- **Engineer:** Implements the approved specification, identifies an exact candidate commit for documentation review, adds appropriate tests, runs checks, and opens or updates a PR if authorized by the execution environment. Owns all implementation, including skill loading, agent loop, MCP connectors, and approval workflows. Follows `docs/agents/software-engineer.md`.
+- **Documentation Impact Gate:** The `docs-sync` development-agent skill reviews the exact candidate against its explicit base after Engineering and before QA. It updates only materially affected `README.md`/`docs/` content, records `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`, and produces an external report validated by `.agents/validate_docs_impact.py`. This evidence is not independent QA.
+- **QA Engineer:** Reviews the implementation independently in a separate context when possible; refuses a handoff without a successfully validated current Documentation Impact Report, checks acceptance scenarios, executes objective tests, and outputs PASS/FAIL with evidence. Does not modify code, weaken tests, or accept self-reported success. Follows `docs/agents/qa-engineer.md`.
 - **Human Product Owner / AI Architect:** Sets product direction, decides architecture, approves high-impact deviations and permissions, and assesses demos, reports, and runtime outcomes. May inspect code selectively when risks justify it, but is not expected to review every diff.
 
 Use real subagents only when supported. Otherwise, perform clearly separated sequential role passes and disclose the limitation; never claim independence that was not achieved.
@@ -59,6 +62,8 @@ Do not ask for human approval for trivial implementation choices already allowed
 - Each change must occur in an issue-specific branch or isolated worktree. Never implement directly on `master`.
 - Do not change acceptance criteria after implementation to manufacture a PASS.
 - Before QA PASS, complete applicable unit/integration tests, linting, safety and secret checks. Verify actual behavior, not just exit codes.
+- After Engineering stabilizes and before QA starts, invoke `.agents/skills/docs-sync/SKILL.md`, record a Documentation Impact Report for the exact candidate commit, and run `.agents/validate_docs_impact.py`. Only a valid current `UPDATED` or `NO_DOC_CHANGE` report permits QA assignment; missing, stale, malformed, or `BLOCKED` evidence stops progression.
+- Any later implementation or documentation commit changes the candidate SHA and invalidates the earlier documentation report. Re-run `docs-sync` and its validator before assigning or resuming QA.
 - Preserve a reproducible **evidence package** with: spec/acceptance mapping, commands and outputs, changed behavior, QA PASS/FAIL, unresolved risks, and human decisions.
 - Agents may commit and push an isolated issue branch and create/update a PR only when repository tooling and credentials explicitly authorize it. Do not infer permission from these written instructions alone.
 - **Merging and closing issues remain human-controlled by default.** Low-risk auto-merge may be enabled later only through an explicit human-approved policy backed by protected branches and required CI. No agent may bypass branch protection.
@@ -80,4 +85,4 @@ For public Python modules, classes, methods, and functions, write complete Googl
 
 ## Completion report
 
-For each issue, produce a concise factory report with: issue ID, specification version, implementation summary, acceptance-criteria evidence, tests and their actual outcomes, QA verdict, risks, deviations, links to PR/artifacts, and whether human input is needed. Reports should enable product-level decisions without requiring routine code inspection
+For each issue, produce a concise factory report with: issue ID, specification version, implementation summary, Documentation Impact Report result and exact candidate SHA, acceptance-criteria evidence, tests and their actual outcomes, QA verdict, risks, deviations, links to PR/artifacts, and whether human input is needed. Reports should enable product-level decisions without requiring routine code inspection
