@@ -34,6 +34,11 @@ Report each exact command, its exit status, and its actual passed, failed, skipp
 expected-failure, and unexpected-pass counts. Inspect the reported behavior; do not infer success
 from an exit status alone. Run focused tests as useful, but they do not replace the full suite.
 
+Pull-request CI repeats these commands independently. It must verify the exact pull-request head
+commit, use the committed dependency lock, and expose command outcomes in durable GitHub logs and
+the job summary. Local Engineer results, independent QA results, and CI results are three distinct
+evidence sources; none substitutes for another.
+
 ## Deferred executable specifications
 
 A deferred test may use `xfail(strict=True)` only as an exceptional, temporary representation of
@@ -49,3 +54,8 @@ Do not use `skip`, a non-strict xfail, marker-based default exclusion, or weaken
 deferred behavior disappear. The owning implementation issue must remove its strict xfail marker and
 make the unchanged executable specification pass. A new deferred test or a change to this policy
 requires Product Owner approval during grooming.
+
+`tests/test_deferred_test_policy.py` enforces the approved count, ownership, strictness, removal
+instructions, and absence of skips. CI must run that policy test explicitly in addition to the full
+suite. An ordinary failure, skip, missing or extra expected failure, or strict xfail that unexpectedly
+passes is a failed quality gate, never a result to ignore or relabel.
