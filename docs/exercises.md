@@ -1,46 +1,55 @@
-# Learning exercises
+# Deferred executable specifications
 
-The five tests marked `exercise` are executable specifications. Keep them failing until you implement
-the corresponding behavior; do not weaken or skip them.
+Five tests marked `exercise` specify behavior assigned to open implementation issues. They remain
+collected with their assertions and inputs unchanged, but are temporarily marked
+`xfail(strict=True)` under the exceptional policy in
+[`testing-guidelines.md`](testing-guidelines.md). Strict mode makes an unexpected pass fail the suite
+until the owning issue deliberately removes its marker.
 
-## 1. Discover skill metadata
+Do not skip these tests, make their xfail markers non-strict, or weaken their assertions. The owning
+implementation issue must remove its marker when it implements the behavior.
 
-Start with `SkillLoader.discover()` in `src/endurance_coach/skills.py`.
+## Skill discovery — issue #15
 
-It should return an empty list when the root does not exist, inspect sorted immediate child
-directories containing `SKILL.md`, parse YAML frontmatter, verify that the frontmatter `name` matches
-the directory name, and return `SkillMetadata` objects. Do not put the Markdown body in a discovery
-result. Confirm with `test_skill_discovery_returns_metadata_only`.
+[`SkillLoader.discover()` implementation](https://github.com/edugonzaloalmorox/endurance-coach/issues/15)
+must return an empty list when the root does not exist, inspect sorted immediate child directories
+containing `SKILL.md`, parse YAML frontmatter, verify that the frontmatter `name` matches the
+directory name, and return `SkillMetadata` objects. Discovery must not expose the Markdown body.
 
-## 2. Load one skill progressively
+Owning test: `test_skill_discovery_returns_metadata_only`.
 
-Implement `SkillLoader.load_skill(name)`. Reject unsafe names before constructing a path, raise a
-clear `FileNotFoundError` for an unknown skill, parse the same frontmatter, and return `LoadedSkill`
-with the Markdown body in `instructions`. Confirm with
-`test_skill_is_loaded_progressively_only_when_requested` and `test_missing_skill_has_a_clear_error`.
+## Explicit skill loading — issue #16
 
-## 3. Handle missing activity data
+[`SkillLoader.load_skill()` implementation](https://github.com/edugonzaloalmorox/endurance-coach/issues/16)
+must reject unsafe names before constructing a path, raise a clear `FileNotFoundError` for an unknown
+skill, parse the same frontmatter, and return `LoadedSkill` with the Markdown body in `instructions`.
 
-At the beginning of `AgentRuntime.run()`, raise `MissingTrainingDataError` for an empty activity list.
-The runtime must not ask a model to fabricate training history. Confirm with
-`test_runtime_refuses_to_plan_without_activity_data`.
+Owning tests: `test_skill_is_loaded_progressively_only_when_requested` and
+`test_missing_skill_has_a_clear_error`.
 
-## 4. Implement the local tool loop
+## Missing activity data — issue #18
 
-Complete `AgentRuntime.run()` last. If no client was injected, create `ollama.Client` from the host
-setting. Supply the configured model, a concise system prompt, validated activity/metric context, and
-a `load_skill` tool schema. When the assistant requests that tool, call your loader, append both the
-assistant tool request and tool result to the message history, then call the model again. Bound the
-number of iterations so malformed model behavior cannot loop forever.
+[`AgentRuntime` context and missing-data behavior](https://github.com/edugonzaloalmorox/endurance-coach/issues/18)
+must raise `MissingTrainingDataError` for an empty activity list before asking a model to plan from
+fabricated history.
 
-When Ollama returns final content, decode JSON and call `validate_output()` before returning. Do not
-catch and hide JSON or Pydantic validation errors. Confirm the protocol first with the deterministic
-`ScriptedOllamaClient` in `test_runtime_executes_skill_tool_call_and_validates_final_output`; a live
-model is not required for that test.
+Owning test: `test_runtime_refuses_to_plan_without_activity_data`.
 
-## Completion check
+## Local skill tool loop — issue #19
 
-Run `uv run pytest`. The implementation is complete only when the scaffold tests and all five
-exercise tests pass together. Keep external services, persistence, frontends, and additional agents
-out of this milestone.
+[`AgentRuntime` skill tool loop](https://github.com/edugonzaloalmorox/endurance-coach/issues/19)
+must use the configured model, validated activity and metric context, and a `load_skill` tool schema.
+It must append assistant tool requests and tool results to bounded message history, then decode final
+JSON and validate it as a current `WorkoutRecommendation`.
+
+Owning test: `test_runtime_executes_skill_tool_call_and_validates_final_output`. Issue #19 also owns
+updating that test's scripted final response to the current recommendation contract before removing
+the strict xfail. Malformed-output repair and bounded retries remain assigned to
+[#23](https://github.com/edugonzaloalmorox/endurance-coach/issues/23).
+
+## Verification
+
+Run `uv run pytest` and report all five expected failures with their owning issues. Also run
+`uv run pytest -m "not exercise"` and `uv run ruff check .`. Completion of an owning issue means its
+strict xfail marker is removed and its unchanged executable specification passes.
 

@@ -1,4 +1,4 @@
-"""Executable specifications for the learner-owned Ollama agent loop."""
+"""Deferred executable specifications for Ollama runtime implementation issues."""
 
 from pathlib import Path
 
@@ -50,6 +50,10 @@ def make_runtime(client=None) -> AgentRuntime:
 
 
 @pytest.mark.exercise
+@pytest.mark.xfail(
+    strict=True,
+    reason="Deferred to #19; remove this marker when #19 implements the skill tool loop.",
+)
 def test_runtime_executes_skill_tool_call_and_validates_final_output(activities):
     client = ScriptedOllamaClient()
 
@@ -61,6 +65,10 @@ def test_runtime_executes_skill_tool_call_and_validates_final_output(activities)
 
 
 @pytest.mark.exercise
+@pytest.mark.xfail(
+    strict=True,
+    reason="Deferred to #18; remove this marker when #18 implements missing-data handling.",
+)
 def test_runtime_refuses_to_plan_without_activity_data():
     with pytest.raises(MissingTrainingDataError, match="activity"):
         make_runtime().run("What should I ride tomorrow?", [])

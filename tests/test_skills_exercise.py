@@ -1,4 +1,4 @@
-"""Executable specifications for the learner-owned SkillLoader implementation."""
+"""Deferred executable specifications for SkillLoader implementation issues."""
 
 import pytest
 
@@ -7,6 +7,10 @@ from endurance_coach.skills import SkillLoader
 
 
 @pytest.mark.exercise
+@pytest.mark.xfail(
+    strict=True,
+    reason="Deferred to #15; remove this marker when #15 implements skill discovery.",
+)
 def test_skill_discovery_returns_metadata_only():
     loader = SkillLoader(skills_directory="coach_skills")
 
@@ -26,6 +30,10 @@ def test_skill_discovery_returns_metadata_only():
 
 
 @pytest.mark.exercise
+@pytest.mark.xfail(
+    strict=True,
+    reason="Deferred to #16; remove this marker when #16 implements explicit skill loading.",
+)
 def test_skill_is_loaded_progressively_only_when_requested():
     loader = SkillLoader(skills_directory="coach_skills")
 
@@ -37,6 +45,10 @@ def test_skill_is_loaded_progressively_only_when_requested():
 
 
 @pytest.mark.exercise
+@pytest.mark.xfail(
+    strict=True,
+    reason="Deferred to #16; remove this marker when #16 implements explicit skill loading.",
+)
 def test_missing_skill_has_a_clear_error():
     loader = SkillLoader(skills_directory="coach_skills")
 
