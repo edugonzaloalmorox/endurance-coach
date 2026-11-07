@@ -11,7 +11,7 @@ Turn a GitHub issue into a verified, reproducible change using autonomous PM →
 - GitHub Issues: backlog, acceptance criteria, dependencies, discussion, and human decisions.
 - `AGENTS.md`: project guardrails.
 - Role documents in `docs/agents/`: role-specific responsibilities.
-- `master`: protected integration branch.
+- `master`: integration branch; protection is tracked separately and must not be assumed.
 - CI/QA evidence: objective verification for the exact commit being reviewed.
 
 ## Lifecycle states
@@ -32,11 +32,12 @@ State transitions, retry limits, and permissions should ultimately be enforced b
 3. **Risk gate:** If the specification requires architecture changes, new credentials/scopes, security-sensitive behavior, or other listed escalations, mark `NEEDS_HUMAN` and present a short decision request. Otherwise proceed autonomously.
 4. **Prepare isolated environment:** Create an issue-specific branch/worktree and keep a log of the base commit and environment. Never edit `master` directly.
 5. **Implement (Engineer):** Complete the code, tests, fixtures and documentation necessary for the issue. Run focused checks and the relevant project commands. The Engineer owns core mechanisms, including Agent Skills and Ollama integration.
-6. **Verify (QA):** Use a separate session or worker where possible. Independently inspect spec compliance and run tests against the exact proposed commit. QA outputs `PASS` or `FAIL`, with evidence, and never edits code.
-7. **On FAIL:** Return the report to the Engineer for correction, then rerun QA. Allow no more than **2 automated fix attempts** by default; escalate after repeated failure or unreproducible checks.
-8. **On PASS:** Prepare or update a PR, attach an evidence report, and mark `PR_READY`. Validate all required CI and policy checks for the final commit. A green unit-test run alone is not sufficient proof of the intended outcome.
-9. **Integrate:** By default the human authorizes the merge based on specification, demo, QA evidence and risk summary. The issue can close when the change is integrated and behavior is verified. Automerge for low-risk issues requires a separately approved policy, configured branch protection, and required checks.
-10. **Continue:** Orchestrator can select the next ready issue once the prior issue is integrated or the environment has proven safe isolation. It must honor stop conditions, dependencies and escalation states.
+6. **Publish the verification candidate:** Push the issue branch and create or update its pull request. Record the exact head commit; automated CI starts from that pull-request event. A draft pull request may be used while verification is incomplete.
+7. **Verify (QA and CI):** QA uses a separate session or worker where possible, independently inspects specification compliance, and runs tests against the exact proposed commit. CI independently checks the exact pull-request head. QA outputs `PASS` or `FAIL`, with evidence, and never edits code.
+8. **On FAIL:** Return Engineer or QA failures to the Engineer for correction, then rerun independent QA and CI on the new head. Allow no more than **2 automated fix attempts** by default; escalate after repeated failure or unreproducible checks. CI product or configuration failures also return to the Engineer. Classify CI platform outages and unavailable runners as infrastructure failures: retry when service recovers, but never count missing, cancelled, stale or unavailable CI as success.
+9. **On PASS:** Mark the pull request `PR_READY` only when QA passes and every required CI and policy check succeeds for the same current head. A green unit-test run alone is not sufficient proof of the intended outcome.
+10. **Integrate:** By default the human authorizes the merge based on specification, demo, QA evidence and risk summary. The issue can close when the change is integrated and behavior is verified. Automerge for low-risk issues requires a separately approved policy, configured branch protection, and required checks.
+11. **Continue:** Orchestrator can select the next ready issue once the prior issue is integrated or the environment has proven safe isolation. It must honor stop conditions, dependencies and escalation states.
 
 ## Human escalation policy
 
@@ -73,6 +74,22 @@ State transitions, retry limits, and permissions should ultimately be enforced b
 **Orchestrator → Human (only as needed)**
 - Decision request with options and consequences, or PR-ready evidence summary with the recommended action.
 - Never send raw internal chain-of-thought. Include concise rationale and observed facts.
+
+## Evidence layers and merge eligibility
+
+- **Engineer evidence** records implementation-local commands and observed results. It demonstrates
+  what the implementer checked, but is not independent verification.
+- **Independent QA evidence** maps every acceptance criterion to behavior observed by a separate
+  verifier at an exact commit. QA does not rely on the Engineer's report and does not modify code.
+- **Automated CI evidence** is the repository-hosted result of required checks against the exact
+  current pull-request head. CI provides a reproducible gate, but does not interpret product intent
+  or replace QA.
+
+A pull request is merge-eligible only when all acceptance criteria are satisfied, independent QA is
+`PASS` for its current head, every required CI check is successful for that same head, no blocker is
+unresolved, and the human has explicitly authorized the merge. Any new commit invalidates prior QA
+and CI merge eligibility; both must run again on the new head. Missing, cancelled, stale, skipped or
+unavailable required evidence is not success. Required-check bypass is forbidden.
 
 ## Required PR evidence
 

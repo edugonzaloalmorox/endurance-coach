@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the exact pull-request head
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the checked-out commit
+        id: head
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual_head_sha="$(git rev-parse HEAD)"
+          echo "Expected PR head: ${EXPECTED_HEAD_SHA}"
+          echo "Checked-out HEAD: ${actual_head_sha}"
+          test "${actual_head_sha}" = "${EXPECTED_HEAD_SHA}"
+
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        id: uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.7.2"
+
+      - name: Synchronize dependencies
+        id: sync
+        run: uv sync
+
+      - name: Verify dependency files are unchanged
+        id: lockfile
+        run: git diff --exit-code -- pyproject.toml uv.lock
+
+      - name: Run the full test suite
+        id: pytest
+        run: uv run pytest
+
+      - name: Verify the deferred-test policy
+        id: deferred
+        run: uv run pytest tests/test_deferred_test_policy.py
+
+      - name: Run the non-exercise test suite
+        id: non_exercise
+        run: uv run pytest -m "not exercise"
+
+      - name: Run Ruff
+        id: ruff
+        run: uv run ruff check .
+
+      - name: Record the quality-gate summary
+        if: ${{ always() }}
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          HEAD_OUTCOME: ${{ steps.head.outcome }}
+          SYNC_OUTCOME: ${{ steps.sync.outcome }}
+          LOCKFILE_OUTCOME: ${{ steps.lockfile.outcome }}
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          DEFERRED_OUTCOME: ${{ steps.deferred.outcome }}
+          NON_EXERCISE_OUTCOME: ${{ steps.non_exercise.outcome }}
+          RUFF_OUTCOME: ${{ steps.ruff.outcome }}
+        run: |
+          actual_head_sha="$(git rev-parse HEAD 2>/dev/null || echo unavailable)"
+          {
+            echo "## CI quality gate"
+            echo
+            echo "Expected PR head: \`${EXPECTED_HEAD_SHA}\`"
+            echo "Checked-out HEAD: \`${actual_head_sha}\`"
+            echo
+            echo "| Gate | Outcome |"
+            echo "| --- | --- |"
+            echo "| Checkout | ${CHECKOUT_OUTCOME} |"
+            echo "| Exact-head verification | ${HEAD_OUTCOME} |"
+            echo "| \`uv sync\` | ${SYNC_OUTCOME} |"
+            echo "| Dependency-file integrity | ${LOCKFILE_OUTCOME} |"
+            echo "| \`uv run pytest\` | ${PYTEST_OUTCOME} |"
+            echo "| Deferred-test integrity | ${DEFERRED_OUTCOME} |"
+            echo "| \`uv run pytest -m not exercise\` | ${NON_EXERCISE_OUTCOME} |"
+            echo "| \`uv run ruff check .\` | ${RUFF_OUTCOME} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
