@@ -1,10 +1,10 @@
 # Endurance Coach
 
 Endurance Coach is a Python AI cycling coach for long-distance training, developed through a Dark
-Software Factory in which PM, Engineer, and QA agents turn approved GitHub issues into reproducible,
-independently verified changes. The current product includes validated data contracts,
-deterministic cycling metrics, synthetic training data, one runtime coaching skill, and the public
-seams for a local Ollama runtime.
+Software Factory in which PM, Engineer, Documentation Impact Gate, and QA stages turn approved
+GitHub issues into reproducible, independently verified changes. The current product includes
+validated data contracts, deterministic cycling metrics, synthetic training data, one runtime
+coaching skill, and the public seams for a local Ollama runtime.
 
 Development-agent instructions and Codex skills guide repository work. They are separate from the
 application's runtime coaching skills in `coach_skills/`, which guide the local coach while it is
@@ -50,6 +50,12 @@ linked to its owning implementation issue in the test marker and in
 unexpected pass fail the suite until the owning issue removes its marker. Verification evidence must
 report all expected failures explicitly; see
 [`docs/testing-guidelines.md`](docs/testing-guidelines.md).
+
+Before independent QA, every factory change also needs a Documentation Impact Report for its exact
+candidate commit. The tracked [`docs-sync` skill](.agents/skills/docs-sync/SKILL.md) updates only
+materially affected documentation or records a justified `NO_DOC_CHANGE`; the deterministic
+validator blocks missing, stale, malformed, or `BLOCKED` evidence. This development gate does not
+replace independent QA or hosted CI.
 
 ## Scope and safety
 
