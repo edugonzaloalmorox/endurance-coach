@@ -1,10 +1,10 @@
-# Endurance Coach — Guided Development Plan
+# Endurance Coach — Product Development Plan
 
-**Technical goal:** learn to build an agent with Agent Skills, progressive loading, tool calling, MCP, structured data, evaluation, and human approval workflows.
+**Technical goal:** deliver an agent with Agent Skills, progressive loading, tool calling, MCP, structured data, evaluation, and human approval workflows.
 
 **Sports goal:** recommend weekly long-distance cycling workouts, adjust them daily based on training load and recovery, and improve the ability to sustain performance under fatigue.
 
-**Working approach:** Codex prepares scaffolding, contracts, fixtures, and tests; you implement the key mechanisms; the assistant reviews architecture, decisions, and code. Use one agent with a local Ollama model and deterministic Python metrics and validation. Do not introduce agent orchestration frameworks in M1.
+**Working approach:** GitHub Issues are the backlog and acceptance source of truth. Each dependency-ready issue moves through PM specification, Engineer implementation, and independent QA verification under [`process.md`](process.md) and the role definitions in [`agents/`](agents/). The development agents that operate this factory are distinct from the product's runtime coaching agent. The product uses one runtime agent with a local Ollama model and deterministic Python metrics and validation; do not introduce runtime agent-orchestration frameworks in M1.
 
 ## Cross-cutting requirements
 
@@ -29,93 +29,93 @@
 
 ## M0 — Repository setup
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M0-01 | Inspect the repository and agree on a minimal structure with `uv`, `src/`, `tests/`, `coach_skills/`, and `data/` | Codex + you | Structure agreed; no unnecessary empty modules |
-| M0-02 | Define Pydantic contracts for activities, skills, tools, and recommendations | You (design), Codex (scaffolding) | Types and units documented; optional fields explicit |
-| M0-03 | Configure Ruff, pytest, `.env.example`, `.gitignore`, README, and a basic CLI | Codex | Reproducible local setup; lint and tests runnable |
-| M0-04 | Define contribution instructions (`AGENTS.md`) and distinguish Codex skills from application skills | You + Codex | Documentation clearly separates the two skill layers |
+| M0-01 | Inspect the repository and agree on a minimal structure with `uv`, `src/`, `tests/`, `coach_skills/`, and `data/` | #1 | Structure agreed; no unnecessary empty modules |
+| M0-02 | Define Pydantic contracts for activities, skills, tools, and recommendations | #4–#6 | Types and units documented; optional fields explicit |
+| M0-03 | Configure Ruff, pytest, `.env.example`, `.gitignore`, README, and a basic CLI | #2–#3 | Reproducible local setup; lint and tests runnable |
+| M0-04 | Define contribution instructions (`AGENTS.md`) and distinguish development-agent skills from application skills | #7 | Documentation clearly separates the two skill layers |
 
 **M0 completion gate:** `uv sync`, `uv run pytest`, and `uv run ruff check .` work with the scaffold, or intentionally pending tests are identified precisely.
 
 ## M1 — Skills Foundation (no external services)
 
-| ID | Task | Owner | Dependency / acceptance criteria |
+| ID | Task | Backlog | Dependency / acceptance criteria |
 |---|---|---|---|
-| M1-01 | Create a synthetic 14-day dataset with power, heart rate, intensities, rest days, and missing fields | Codex | Fixed reference dates; clearly labeled synthetic data |
-| M1-02 | Implement pure functions for 7-/14-day volume, active days, intensity, hard sessions, and weekly trends | Codex; reviewed by you | Reproducible tests and documented units |
-| M1-03 | Create `coach_skills/plan-workout/SKILL.md` with frontmatter, a procedure, and safety/uncertainty guidance | **You** | Skill defines a procedure; does not perform calculations |
-| M1-04 | Write tests and skeletons for `SkillLoader` (discovery, metadata, explicit loading, safe paths) | Codex | Pending tests identified and isolated |
-| M1-05 | Implement `SkillLoader.list_skills()` and `load_skill()` with progressive loading | **You** | Full instructions stay out of context until activation; path traversal blocked |
-| M1-06 | Write mocks/tests for the Ollama loop: tool calls, failures, and step limits | Codex | Tests do not require a live Ollama server |
-| M1-07 | Implement the agent loop, including messages, tool selection, tool results, errors, and iteration limits | **You** | Activates a skill and uses computed metrics instead of calculating them in the LLM |
-| M1-08 | Expose CLI commands: `skills list`, `skills show`, `ask "What should I train tomorrow?"`, `--debug` | You + Codex | Local end-to-end flow; observable decision trace without exposing hidden reasoning |
-| M1-09 | Validate JSON output with Pydantic, including bounded retries and warnings | **You** | Valid duration/intensity/type/rationale; missing data handled |
-| M1-10 | Review tests and README; explain skill vs. tool vs. agent loop in your own words | You + assistant | pytest and Ruff pass; live Ollama execution verified or limitation clearly stated |
+| M1-01 | Create a synthetic 14-day dataset with power, heart rate, intensities, rest days, and missing fields | #8 | Fixed reference dates; clearly labeled synthetic data |
+| M1-02 | Implement pure functions for 7-/14-day volume, active days, intensity, hard sessions, and weekly trends | #9–#11 | Reproducible tests and documented units |
+| M1-03 | Create `coach_skills/plan-workout/SKILL.md` with frontmatter, a procedure, and safety/uncertainty guidance | #12 | Skill defines a procedure; does not perform calculations |
+| M1-04 | Write tests and skeletons for `SkillLoader` (discovery, metadata, explicit loading, safe paths) | #13–#14 | Pending tests identified and isolated |
+| M1-05 | Implement `SkillLoader.list_skills()` and `load_skill()` with progressive loading | #15–#16 | Full instructions stay out of context until activation; path traversal blocked |
+| M1-06 | Write mocks/tests for the Ollama loop: tool calls, failures, and step limits | #17 | Tests do not require a live Ollama server |
+| M1-07 | Implement the agent loop, including messages, tool selection, tool results, errors, and iteration limits | #18–#20 | Activates a skill and uses computed metrics instead of calculating them in the LLM |
+| M1-08 | Expose CLI commands: `skills list`, `skills show`, `ask "What should I train tomorrow?"`, `--debug` | #21–#22 | Local end-to-end flow; observable decision trace without exposing hidden reasoning |
+| M1-09 | Validate JSON output with Pydantic, including bounded retries and warnings | #23 | Valid duration/intensity/type/rationale; missing data handled |
+| M1-10 | Verify and document the complete M1 workflow | #24 | pytest and Ruff pass; live Ollama execution verified or limitation clearly stated |
 
 **M1 completion gate:** `endurance-coach ask "What should I train tomorrow?"` produces a JSON recommendation using synthetic data and a skill loaded on demand; tests pass without a real model.
 
 ## M2 — Real data integrations and the `analyze-training` skill
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M2-01 | Inspect current documentation and real responses from Intervals.icu and COROS; document limitations | You + Codex | Schemas, authentication, and endpoints verified; no invented tools |
-| M2-02 | Build a read-only Intervals.icu connector with environment-based credentials, error handling, and pagination | **You**; Codex writes tests | Retrieves relevant activities and training metadata |
-| M2-03 | Build a read-only COROS MCP connector (OAuth, tool discovery, allowlist) | **You**; Codex provides fixtures | Uses only tools actually available; no write operations |
-| M2-04 | Normalize dates, units, IDs, zones, power, and heart rate; reconcile duplicates and preserve provenance | You + Codex | Same session is never counted twice; source traceability preserved |
-| M2-05 | Add SQLite storage for normalized activities and incremental sync state | Codex scaffolding; you implement logic | Idempotent sync and failure recovery |
-| M2-06 | Create `analyze-training/SKILL.md` and tests for choosing between two skills | **You** | Agent can select and combine `analyze-training` and `plan-workout` |
+| M2-01 | Inspect current documentation and real responses from Intervals.icu and COROS; document limitations | #25 | Schemas, authentication, and endpoints verified; no invented tools |
+| M2-02 | Build a read-only Intervals.icu connector with environment-based credentials, error handling, and pagination | #26–#27 | Retrieves relevant activities and training metadata |
+| M2-03 | Build a read-only COROS MCP connector (OAuth, tool discovery, allowlist) | #28 | Uses only tools actually available; no write operations |
+| M2-04 | Normalize dates, units, IDs, zones, power, and heart rate; reconcile duplicates and preserve provenance | #29–#30 | Same session is never counted twice; source traceability preserved |
+| M2-05 | Add SQLite storage for normalized activities and incremental sync state | #31–#33 | Idempotent sync and failure recovery |
+| M2-06 | Create `analyze-training/SKILL.md` and tests for choosing between two skills | #34–#35 | Agent can select and combine `analyze-training` and `plan-workout` |
 
 **M2 completion gate:** repeatable real-data sync without duplicates, with power and heart-rate fields attributed to their sources; integration tests use mocked responses.
 
 ## M3 — Performance, recovery, and the `assess-recovery` skill
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M3-01 | Implement deterministic metrics: load, volume, power-duration curve when available, and performance comparisons under accumulated fatigue | You (design), Codex (tests), you (implementation) | Metrics include units, period, sample size, and provenance; no fabricated scores |
-| M3-02 | Analyze *durability* using power, time, and kJ when time-series data is available | **You** | Valid comparisons and documented limitations |
-| M3-03 | Assess recovery using individual sleep, HRV, and resting-heart-rate trends where data is accessible | You + Codex | Missing metrics remain unknown |
-| M3-04 | Implement a CLI `check-in` for fatigue, soreness, and readiness (1–10), saved with a date | **You** | Validated and persisted input |
-| M3-05 | Create the `assess-recovery` skill and uncertainty-handling rules | **You** | No diagnoses or decisions based on a single signal |
-| M3-06 | Create test scenarios for fatigue, missing power, and insufficient data | Codex | Edge-case tests and appropriately cautious recommendations |
+| M3-01 | Implement deterministic metrics: load, volume, power-duration curve when available, and performance comparisons under accumulated fatigue | #36–#38 | Metrics include units, period, sample size, and provenance; no fabricated scores |
+| M3-02 | Analyze *durability* using power, time, and kJ when time-series data is available | #39 | Valid comparisons and documented limitations |
+| M3-03 | Assess recovery using individual sleep, HRV, and resting-heart-rate trends where data is accessible | #40–#41 | Missing metrics remain unknown |
+| M3-04 | Implement a CLI `check-in` for fatigue, soreness, and readiness (1–10), saved with a date | #42 | Validated and persisted input |
+| M3-05 | Create the `assess-recovery` skill and uncertainty-handling rules | #43 | No diagnoses or decisions based on a single signal |
+| M3-06 | Create test scenarios for fatigue, missing power, and insufficient data | #44 | Edge-case tests and appropriately cautious recommendations |
 
 **M3 completion gate:** an explainable report distinguishes observations, hypotheses, and insufficient evidence; recovery informs recommendations without clinical conclusions.
 
 ## M4 — Weekly planning, strength, and events
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M4-01 | Define an athlete profile with goals, FTP, zones, optional events, and editable weekly availability | You + Codex | Persisted, validated settings |
-| M4-02 | Build a CLI for logging strength training: exercise, sets, reps, kg, and optional RPE | **You** | Validated history can be viewed and edited |
-| M4-03 | Implement a deterministic constraint engine for the default 9 h/week, daily limits, rest, and strength load | You + Codex | Rejects impossible plans; flags risk and uncertainty |
-| M4-04 | Extend `plan-workout` to propose seven days with duration, intensity, objective, and evidence | **You** | Structured plan, valid total hours, flexible strength frequency |
-| M4-05 | Support continuous improvement and event preparation modes (optional date/distance/elevation) | You | No event required to receive recommendations |
-| M4-06 | Persist plans and versions in SQLite and display them through the CLI | Codex scaffolding; you implement logic | Plans can be retrieved by week and version |
+| M4-01 | Define an athlete profile with goals, FTP, zones, optional events, and editable weekly availability | #45–#47 | Persisted, validated settings |
+| M4-02 | Build a CLI for logging strength training: exercise, sets, reps, kg, and optional RPE | #48–#49 | Validated history can be viewed and edited |
+| M4-03 | Implement a deterministic constraint engine for the default 9 h/week, daily limits, rest, and strength load | #50–#51 | Rejects impossible plans; flags risk and uncertainty |
+| M4-04 | Extend `plan-workout` to propose seven days with duration, intensity, objective, and evidence | #52–#53 | Structured plan, valid total hours, flexible strength frequency |
+| M4-05 | Support continuous improvement and event preparation modes (optional date/distance/elevation) | #47, #53 | No event required to receive recommendations |
+| M4-06 | Persist plans and versions in SQLite and display them through the CLI | #54–#55 | Plans can be retrieved by week and version |
 
 **M4 completion gate:** the agent proposes a week that meets availability and training constraints; plans are reviewed before becoming active.
 
 ## M5 — Daily adjustments and human approval
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M5-01 | Compare planned sessions with completed sessions and daily recovery | You | Differences explained with data and dates |
-| M5-02 | Create the `adjust-plan` skill that produces proposals, never direct changes | **You** | Rationale includes impact on the rest of the week |
-| M5-03 | Implement `proposed`, `approved`, `rejected`, and `applied` states with valid transitions | **You**; Codex writes tests | No write path without approval |
-| M5-04 | Expose CLI commands: `plan proposals`, `approve <id>`, and `reject <id>` | You + Codex | Explicit interaction; rejection preserves the previous plan |
-| M5-05 | Implement SQLite auditing: previous/new versions, rationale, timestamp, and approval | You | Reproducible history; idempotent operations |
-| M5-06 | Add safety tests for unapproved writes, failures/rollback, and retries | Codex + you | Invalid flow and basic concurrency tests |
+| M5-01 | Compare planned sessions with completed sessions and daily recovery | #56 | Differences explained with data and dates |
+| M5-02 | Create the `adjust-plan` skill that produces proposals, never direct changes | #57 | Rationale includes impact on the rest of the week |
+| M5-03 | Implement `proposed`, `approved`, `rejected`, and `applied` states with valid transitions | #58 | No write path without approval |
+| M5-04 | Expose CLI commands: `plan proposals`, `approve <id>`, and `reject <id>` | #59 | Explicit interaction; rejection preserves the previous plan |
+| M5-05 | Implement SQLite auditing: previous/new versions, rationale, timestamp, and approval | #60–#61 | Reproducible history; idempotent operations |
+| M5-06 | Add safety tests for unapproved writes, failures/rollback, and retries | #60–#61 | Invalid flow and basic concurrency tests |
 
 **M5 completion gate:** an agent-proposed adjustment is approved by the user and applied with full history; rejection leaves the plan unchanged.
 
 ## M6 — Evaluation and quality
 
-| ID | Task | Owner | Acceptance criteria |
+| ID | Task | Backlog | Acceptance criteria |
 |---|---|---|---|
-| M6-01 | Build a scenario suite: fatigue, excessive training load, missing HRV, events, and constrained schedules | You (criteria), Codex (fixtures) | Representative cases with expected outcomes |
-| M6-02 | Evaluate skill selection, tool sequence, metric accuracy, and JSON validity | **You** | Repeatable success and regression metrics |
-| M6-03 | Evaluate training safety and adherence to availability/approval constraints | You | 100% compliance with hard constraints in deterministic tests |
-| M6-04 | Add local observability: errors, estimated local token costs, latency, and traces without sensitive data | Codex + you | Useful configurable logs without secrets |
-| M6-05 | Update architecture, limitations, and decisions; create a nutrition/Google Sheets backlog | You + Codex | README and architecture decision records (ADRs) updated |
+| M6-01 | Build a scenario suite: fatigue, excessive training load, missing HRV, events, and constrained schedules | #62 | Representative cases with expected outcomes |
+| M6-02 | Evaluate skill selection, tool sequence, metric accuracy, and JSON validity | #63 | Repeatable success and regression metrics |
+| M6-03 | Evaluate training safety and adherence to availability/approval constraints | #64 | 100% compliance with hard constraints in deterministic tests |
+| M6-04 | Add local observability: errors, estimated local token costs, latency, and traces without sensitive data | #65 | Useful configurable logs without secrets |
+| M6-05 | Update architecture, limitations, and decisions; create a nutrition/Google Sheets backlog | #65 | README and architecture decision records (ADRs) updated |
 
 **M6 completion gate:** every agent version can be checked against fixed scenarios without regressing on critical rules.
 
@@ -131,16 +131,16 @@ M4 may be prototyped using synthetic data before M3 is finished, but introduce n
 - Relevant tests (normal behavior, errors, missing data) and Ruff executed.
 - Contracts and README updated when behavior changes.
 - Claims of successful live execution only when actually tested.
-- Understanding demonstrated: you can explain the inputs, outputs, failures, and why each piece of logic belongs in a skill, tool, or Python service.
+- Evidence explains the inputs, outputs, failures, and why each piece of logic belongs in a skill, tool, or Python service.
 
-## First work block — next development session
+## Factory execution sequence
 
-1. Codex: complete M0-01 through M0-04 and M1-01/M1-02/M1-04/M1-06, without implementing the mechanisms reserved for you.
-2. You: inspect the tests and create M1-03 (`SKILL.md`).
-3. You: implement M1-05 (`SkillLoader`).
-4. Review together: frontmatter, path security, progressive disclosure, and tests.
-5. Proceed to M1-07 (agent loop) only after `SkillLoader` passes its tests.
+1. The Orchestrator selects one dependency-ready GitHub issue without skipping blocked work.
+2. The PM turns that issue into an executable specification and escalates consequential ambiguity.
+3. The Engineer implements the approved specification in an issue-specific branch or worktree and records exact evidence.
+4. An independent QA Engineer verifies every acceptance criterion against the exact candidate commit.
+5. Human-authorized integration occurs only after current-head QA and required CI pass; later milestones retain the dependency order above.
 
 ## Out of scope for the MVP
 
-Nutrition, Google Sheets food records, frontend, multiple agents, RAG/vector databases, write-back synchronization to COROS/Intervals.icu, and autonomous changes without approval.
+Nutrition, Google Sheets food records, frontend, multiple runtime coaching agents, RAG/vector databases, write-back synchronization to COROS/Intervals.icu, and autonomous training-plan changes without approval.

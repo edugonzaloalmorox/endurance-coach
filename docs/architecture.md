@@ -1,7 +1,8 @@
 # Architecture
 
 The design is intentionally small. Pydantic models form the boundaries, pure metric functions do the
-cycling arithmetic, and two learner-owned classes will eventually connect an Agent Skill to Ollama.
+cycling arithmetic, and backlog issues incrementally connect Agent Skills to Ollama through the
+runtime and skill-loading components.
 
 ```text
 synthetic JSON -> TrainingActivity -> deterministic metrics
@@ -37,4 +38,13 @@ JSON, and validate it with `WorkoutRecommendation`. It must not silently invent 
 
 No networking occurs in metrics, model validation, skill loading, or sample-data generation. Ollama
 is the sole future network boundary and is expected to run locally.
+
+## Development ownership
+
+GitHub Issues define product work and acceptance criteria. The Dark Software Factory delivers each
+dependency-ready issue through PM specification, Engineer implementation, and independent QA
+verification, following [`process.md`](process.md) and the role definitions in [`agents/`](agents/).
+Those development roles are separate from the product's runtime coaching agent shown above. Factory
+agents change and verify the repository; the runtime agent loads coaching skills and produces
+validated recommendations without gaining authority to apply training-plan changes.
 
