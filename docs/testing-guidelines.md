@@ -22,22 +22,42 @@ the behavior it is intended to prove was not exercised.
 
 ## Required verification
 
-Run the commands configured for the repository, including:
+Use focused tests while Engineering iterates. Once the Engineering candidate is stable, run the
+configured final local verification once against that candidate, including:
 
 ```bash
+uv run pytest tests/test_documentation_impact_gate.py
 uv run pytest
 uv run pytest -m "not exercise"
 uv run ruff check .
+git diff --check
 ```
 
 Report each exact command, its exit status, and its actual passed, failed, skipped, deselected,
 expected-failure, and unexpected-pass counts. Inspect the reported behavior; do not infer success
 from an exit status alone. Run focused tests as useful, but they do not replace the full suite.
 
-Pull-request CI repeats these commands independently. It must verify the exact pull-request head
-commit, use the committed dependency lock, and expose command outcomes in durable GitHub logs and
-the job summary. Local Engineer results, independent QA results, and CI results are three distinct
-evidence sources; none substitutes for another.
+Pull-request CI repeats the configured quality gate independently and remains the final full-suite
+release verification. It must verify the exact pull-request head commit, use the committed
+dependency lock, and expose command outcomes in durable GitHub logs and the job summary. Independent
+QA remains read-only and verifies every acceptance criterion with acceptance-focused checks; when
+successful exact-head CI already supplies full-suite coverage, QA may rely on that durable evidence
+instead of rerunning the full suite. Local Engineer results, independent QA results, and CI results
+remain three distinct evidence sources and must refer to the same candidate where applicable.
+
+Record each phase handoff using the compact machine-readable fields in `docs/process.md`. Use actual
+exposed token usage or `unavailable`, never an estimate. Link durable evidence rather than copying
+complete logs, while retaining exact commands, exit codes, concise passed/failed/skipped/deselected/
+expected-failure/unexpected-pass counts, and material failures in that evidence. Never include
+prompts, hidden reasoning, secrets, credentials, or athlete data.
+
+## Documentation-impact routing pre-check
+
+After the Engineering candidate is stable, classify the explicit base-to-candidate changed paths
+using the deterministic mapping in `docs/process.md`. Record only `MATERIAL_CANDIDATE` or
+`NO_MATERIAL_INDICATOR`. This advisory result chooses a full or concise documentation review; it
+never produces `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`, and never permits QA to bypass `docs-sync`.
+Unknown paths route conservatively to `MATERIAL_CANDIDATE`.
 
 ## Documentation Impact Gate
 
@@ -53,9 +73,12 @@ uv run python .agents/validate_docs_impact.py \
 
 The validator must exit zero for QA to start. A current `UPDATED` or evidence-based
 `NO_DOC_CHANGE` report can pass; `BLOCKED`, missing, malformed, or stale evidence cannot. Any later
-commit invalidates the report and requires documentation review and validation again. The focused
-validator tests must cover both passing outcomes and every blocking class, but they do not replace
-the full test suite, independent QA, or hosted CI.
+implementation or documentation commit changes the candidate SHA, invalidates the report and QA
+evidence, and requires the routing pre-check, `docs-sync`, report validation, independent QA, and
+hosted CI again. A `NO_MATERIAL_INDICATOR` permits a concise review but still requires an
+evidence-based `NO_DOC_CHANGE` report and successful validator result. The focused validator tests
+must cover both passing outcomes and every blocking class, but they do not replace the final local
+verification, independent QA, or hosted CI.
 
 ## Deferred executable specifications
 
