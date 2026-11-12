@@ -34,12 +34,12 @@ If a referenced document is missing, report it. Do not pretend to have read it. 
 
 - **Orchestrator:** Coordinates the lifecycle, selects only dependency-ready issues, records states, delegates role tasks, validates the exact-commit Documentation Impact Report before assigning QA, and enforces retry limits and escalations. Does **not** groom, implement, review documentation, or verify code. Prefer a deterministic state machine for routing and permissions; an LLM may assist in prioritization but must not override gates.
 - **PM:** Transforms a GitHub issue into an executable specification: scope, acceptance scenarios, dependencies, risk classification, assumptions, and out-of-scope. Escalates consequential ambiguity. Follows `docs/agents/pm.md`.
-- **Engineer:** Implements the approved specification, identifies an exact candidate commit for documentation review, adds appropriate tests, runs checks, and opens or updates a PR if authorized by the execution environment. Owns all implementation, including skill loading, agent loop, MCP connectors, and approval workflows. Follows `docs/agents/software-engineer.md`.
+- **Engineer:** Implements the approved specification, identifies an exact candidate commit for documentation review, adds appropriate tests, runs checks, and opens or updates a PR if authorized by the execution environment. Owns all issue-authorized implementation, focused development tests, and directly required governance/documentation edits through a stable Engineering candidate, including skill loading, agent loop, MCP connectors, and approval workflows. Follows `docs/agents/software-engineer.md`.
 - **Documentation Impact Gate:** The `docs-sync` development-agent skill reviews the exact candidate against its explicit base after Engineering and before QA. It updates only materially affected `README.md`/`docs/` content, records `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`, and produces an external report validated by `.agents/validate_docs_impact.py`. This evidence is not independent QA.
 - **QA Engineer:** Reviews the implementation independently in a separate context when possible; refuses a handoff without a successfully validated current Documentation Impact Report, checks acceptance scenarios, executes objective tests, and outputs PASS/FAIL with evidence. Does not modify code, weaken tests, or accept self-reported success. Follows `docs/agents/qa-engineer.md`.
 - **Human Product Owner / AI Architect:** Sets product direction, decides architecture, approves high-impact deviations and permissions, and assesses demos, reports, and runtime outcomes. May inspect code selectively when risks justify it, but is not expected to review every diff.
 
-Use real subagents only when supported. Otherwise, perform clearly separated sequential role passes and disclose the limitation; never claim independence that was not achieved.
+Keep routine, short, or inherently sequential implementation in one Engineer context. Use subagents only for genuinely independent work that can be isolated without duplicating context or weakening ownership. Final QA remains a separate read-only context when supported. If separate contexts are unavailable, perform clearly separated sequential role passes and disclose the limitation; never claim independence that was not achieved.
 
 ## Autonomy boundaries
 
@@ -62,12 +62,14 @@ Do not ask for human approval for trivial implementation choices already allowed
 - Each change must occur in an issue-specific branch or isolated worktree. Never implement directly on `master`.
 - Do not change acceptance criteria after implementation to manufacture a PASS.
 - Before QA PASS, complete applicable unit/integration tests, linting, safety and secret checks. Verify actual behavior, not just exit codes.
-- After Engineering stabilizes and before QA starts, invoke `.agents/skills/docs-sync/SKILL.md`, record a Documentation Impact Report for the exact candidate commit, and run `.agents/validate_docs_impact.py`. Only a valid current `UPDATED` or `NO_DOC_CHANGE` report permits QA assignment; missing, stale, malformed, or `BLOCKED` evidence stops progression.
+- After Engineering stabilizes, run the deterministic advisory documentation-impact pre-check defined in `docs/process.md`, then invoke `.agents/skills/docs-sync/SKILL.md` for the explicit base and exact candidate before QA starts. The advisory result never replaces the skill's review. Record a Documentation Impact Report and run `.agents/validate_docs_impact.py`; only a valid current `UPDATED` or `NO_DOC_CHANGE` report permits QA assignment. Missing, stale, malformed, or `BLOCKED` evidence stops progression.
 - Any later implementation or documentation commit changes the candidate SHA and invalidates the earlier documentation report. Re-run `docs-sync` and its validator before assigning or resuming QA.
+- Use focused tests during Engineering iteration, then run the required final local verification once against the stable candidate. Hosted CI remains the final full-suite release verification for the exact pull-request head.
 - Preserve a reproducible **evidence package** with: spec/acceptance mapping, commands and outputs, changed behavior, QA PASS/FAIL, unresolved risks, and human decisions.
+- Record each PM, Engineering, Documentation Impact, QA, and Orchestrator handoff as a compact machine-readable record using the fields and privacy rules in `docs/process.md`. Link durable evidence instead of copying full logs between phases.
 - Agents may commit and push an isolated issue branch and create/update a PR only when repository tooling and credentials explicitly authorize it. Do not infer permission from these written instructions alone.
 - **Merging and closing issues remain human-controlled by default.** Low-risk auto-merge may be enabled later only through an explicit human-approved policy backed by protected branches and required CI. No agent may bypass branch protection.
-- If QA FAILs, return evidence to the Engineer for fixes. Cap automatic retries (default: 2) and escalate persistent failures.
+- If QA FAILs, return evidence to the Engineer for fixes. Cap automatic execution at three total Engineering attempts: the initial implementation plus at most two automated repair attempts. A further failure or an unreproducible result requires `NEEDS_HUMAN`.
 
 ## Product safety and privacy
 
