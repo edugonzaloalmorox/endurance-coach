@@ -536,7 +536,7 @@ Do not escalate ordinary module placement, routine refactoring, or implementatio
 - Use issue-specific branches or isolated worktrees.
 - Never implement directly on `master`.
 - Do not change acceptance criteria to manufacture a PASS.
-- Before QA, complete appropriate Engineering checks and the Documentation Impact Gate.
+- Complete appropriate Engineering checks and the Documentation Impact Gate before QA starts.
 - Validate the documentation report against the exact candidate SHA.
 - Any later commit invalidates earlier exact-SHA documentation and QA eligibility.
 - Missing, stale, malformed, or `BLOCKED` documentation evidence prevents QA.
@@ -545,10 +545,13 @@ Do not escalate ordinary module placement, routine refactoring, or implementatio
 - Agents may commit, push issue branches, and create PRs only with authorized tooling and permissions.
 - **Merging and closing issues remain human-controlled by default.**
 - Never bypass branch protection.
-- If QA fails, return the failure to Engineer and permit at most two automated repair attempts by default.
+- If QA fails, return the failure to Engineer. Cap automatic execution at three total Engineering attempts: the initial implementation plus at most two automated repair attempts. A further failure or an unreproducible result requires `NEEDS_HUMAN`.
 
 ### Efficiency guidelines
 
+- Keep routine, short, or inherently sequential implementation in one Engineer context.
+- Use subagents only for genuinely independent work that can be isolated without duplicating context or weakening ownership.
+- Final QA remains a separate read-only context when supported.
 - Prefer focused tests during implementation; required final checks and hosted CI remain mandatory.
 - Avoid spawning new subagents for short deterministic tasks.
 - Reuse verified existing evidence when its commit SHA and conditions remain valid.
@@ -572,8 +575,6 @@ Do not escalate ordinary module placement, routine refactoring, or implementatio
 - **No proposed workout-plan modification may be applied without explicit athlete approval.**
 - Store credentials securely and apply least-privilege permissions.
 - Keep secrets and personal records out of commits, logs, fixtures, and PR evidence.
-
---
 
 ## Python Documentation Standards
 

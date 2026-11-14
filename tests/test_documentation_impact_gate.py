@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -308,3 +309,97 @@ def test_gate_policy_preserves_qa_ci_and_human_merge_control():
     assert "Automated CI evidence" in process
     assert "human has explicitly authorized the merge" in process
     assert "Required-check bypass is forbidden" in process
+
+
+def test_issue_75_keeps_sequential_engineering_and_independent_qa():
+    agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    process = Path("docs/process.md").read_text(encoding="utf-8")
+    engineer = Path("docs/agents/software-engineer.md").read_text(encoding="utf-8")
+    qa = Path("docs/agents/qa-engineer.md").read_text(encoding="utf-8")
+
+    assert (
+        "routine, short, or inherently sequential implementation in one Engineer context"
+        in agents
+    )
+    assert "subagents only for genuinely independent work" in agents
+    assert "Final QA remains a separate read-only context when supported" in agents
+    assert "all issue-authorized implementation" in engineer
+    assert "until the Engineering candidate is stable" in engineer
+    assert "required final local verification once" in process
+    assert "final full-suite release verification" in process
+    assert "Remain in a separate read-only context when supported" in qa
+    assert "rely on that evidence instead of redundantly repeating full-suite coverage" in qa
+
+
+def test_issue_75_precheck_is_advisory_and_cannot_bypass_docs_sync():
+    process = Path("docs/process.md").read_text(encoding="utf-8")
+    testing = Path("docs/testing-guidelines.md").read_text(encoding="utf-8")
+
+    assert "## Deterministic documentation-impact pre-check" in process
+    assert "explicit base SHA" in process
+    assert "stable candidate SHA" in process
+    assert "MATERIAL_CANDIDATE" in process
+    assert "NO_MATERIAL_INDICATOR" in process
+    assert "Any other unrecognized path" in process
+    assert "both results invoke `docs-sync`" in process
+    assert "paths alone cannot prove documentation impact" in process
+    assert "never produces `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`" in testing
+    assert "never permits QA to bypass `docs-sync`" in testing
+    assert "evidence-based `NO_DOC_CHANGE` report" in testing
+
+
+def test_issue_75_handoff_examples_are_machine_readable_and_invalidate_later_commits():
+    process = Path("docs/process.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```json\n(.*?)\n```", process, re.DOTALL)
+    records = [json.loads(block) for block in blocks]
+
+    required = {
+        "phase",
+        "issue",
+        "specification_version",
+        "candidate_sha",
+        "duration_seconds",
+        "retry_count",
+        "token_usage",
+        "outcome",
+        "evidence_links",
+        "blockers",
+    }
+    assert len(records) >= 3
+    assert all(required <= record.keys() for record in records)
+
+    route_records = {record["routing"]: record for record in records if "routing" in record}
+    assert set(route_records) == {"MATERIAL_CANDIDATE", "NO_MATERIAL_INDICATOR"}
+    assert route_records["MATERIAL_CANDIDATE"]["report_result"] == "UPDATED"
+    assert route_records["NO_MATERIAL_INDICATOR"]["report_result"] == "NO_DOC_CHANGE"
+    for record in route_records.values():
+        assert record["docs_sync_invoked"] is True
+        assert record["validator_exit_code"] == 0
+        assert record["validated_candidate_sha"] == record["candidate_sha"]
+        assert record["after_later_commit"]["candidate_sha"] != record["candidate_sha"]
+        assert record["after_later_commit"]["prior_report_status"] == "STALE"
+        assert record["after_later_commit"]["qa_allowed"] is False
+
+
+def test_issue_75_preserves_retry_privacy_and_human_control_contracts():
+    agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    process = Path("docs/process.md").read_text(encoding="utf-8")
+    testing = Path("docs/testing-guidelines.md").read_text(encoding="utf-8")
+
+    assert "three total Engineering attempts" in agents
+    assert "initial implementation plus at most two automated repair attempts" in agents
+    assert "A further failure or an unreproducible result requires `NEEDS_HUMAN`" in agents
+    assert "unsupported effort selection as `unavailable`" in process
+    assert "Never estimate token usage" in process
+    assert "Do not include prompts, hidden reasoning" in process
+    assert (
+        "Repository settings, branch protection, destructive changes, or merge authorization"
+        in process
+    )
+    assert "third-party writes" in process
+    assert "Training-safety, athlete approval, or personal-data protections" in process
+    assert "No proposed workout-plan modification" in agents
+    assert "Required-check bypass is forbidden" in process
+    assert "human has explicitly authorized the merge" in process
+    assert "uv run pytest tests/test_documentation_impact_gate.py" in testing
+    assert "git diff --check" in testing
