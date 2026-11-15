@@ -4,7 +4,7 @@ Endurance Coach is a Python AI cycling coach for long-distance training, develop
 Software Factory in which PM, Engineer, Documentation Impact Gate, and QA stages turn approved
 GitHub issues into reproducible, independently verified changes. The current product includes
 validated data contracts, deterministic cycling metrics, synthetic training data, one runtime
-coaching skill, and the public seams for a local Ollama runtime.
+coaching skill, a versioned local SQLite schema, and the public seams for a local Ollama runtime.
 
 Development-agent instructions and Codex skills guide repository work. They are separate from the
 application's runtime coaching skills in `coach_skills/`, which guide the local coach while it is
@@ -22,11 +22,18 @@ cd endurance-coach
 uv sync
 cp .env.example .env  # optional; alternatively export the values in your shell
 uv run endurance-coach config
+uv run endurance-coach db init
+uv run endurance-coach db status
 uv run endurance-coach metrics --ftp 250
 ```
 
 The default local model configuration is `qwen3:8b` at `http://localhost:11434`. Pull or select a
 model only when working on an issue that exercises the Ollama agent loop.
+
+The database defaults to `data/endurance_coach.sqlite3`. Override it with
+`ENDURANCE_COACH_DB_PATH`. `ENDURANCE_COACH_ARCHIVE_PATH` reserves a configurable location for the
+historical importer; the current database commands do not read that archive. Their JSON output
+contains only the schema version and per-table row counts, never configured paths or measurements.
 
 Regenerate the committed deterministic fixture with:
 
@@ -61,8 +68,13 @@ replace independent QA or hosted CI.
 
 The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runtime coaching agents,
 and autonomous workout-plan changes. Those product exclusions do not exclude the PM, Engineer, and
-QA development agents used by the factory. Synthetic JSON is the current data source; external
-training providers and persistence are introduced only by their approved backlog issues.
+QA development agents used by the factory. Synthetic JSON remains the only implemented activity
+source. The SQLite foundation is implemented, while historical FIT/CSV ingestion and external
+provider synchronization remain planned backlog work.
+
+Real training archives, generated databases, FIT/GPX files, and Parquet files are excluded from
+version control. Only explicitly approved synthetic fixtures under `tests/fixtures/` may opt back in
+to the file-format ignore rules.
 
 The coach may propose a workout-plan modification, but it must never apply one without the athlete's
 explicit approval. See [`docs/architecture.md`](docs/architecture.md) for component boundaries and
