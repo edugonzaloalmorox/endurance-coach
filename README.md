@@ -36,8 +36,11 @@ The database defaults to `data/endurance_coach.sqlite3`. Override it with
 `ENDURANCE_COACH_DB_PATH`. Set `ENDURANCE_COACH_ARCHIVE_PATH` or pass an archive path to
 `db import-fit`. The importer recursively reads FIT and FIT.GZ files without modifying them,
 deduplicates raw and decompressed content, records per-file failures, and writes each valid file in
-one SQLite transaction. `--dry-run` parses inputs without changing the database. CLI output contains
-only aggregate counts or safe schema metadata, never configured paths or measurements.
+one SQLite transaction. When an archive-root `activities.csv` is present (or `--metadata-csv` names
+one inside the archive), Strava-style rows are matched by the `Filename` column and add descriptive
+name, description, and activity type without replacing FIT measurements. `--dry-run` parses inputs
+without changing the database. CLI output contains only aggregate counts or safe schema metadata,
+never configured paths or measurements.
 
 Regenerate the committed deterministic fixture with:
 
@@ -62,9 +65,10 @@ marker is removed. See [`docs/exercises.md`](docs/exercises.md) and
 ## Scope and safety
 
 The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runtime coaching agents,
-and autonomous workout-plan changes. Synthetic JSON remains the only implemented activity source.
-The SQLite foundation and historical FIT/FIT.GZ ingestion are implemented. CSV metadata association
-and external provider synchronization remain planned work.
+and autonomous workout-plan changes. Synthetic JSON remains the only coaching-workflow activity
+source. The SQLite foundation and historical FIT/FIT.GZ ingestion with complementary CSV metadata
+are implemented. External provider synchronization and database-backed coaching remain planned
+work.
 
 Real training archives, generated databases, FIT/GPX files, and Parquet files are excluded from
 version control. Only explicitly approved synthetic fixtures under `tests/fixtures/` may opt back in

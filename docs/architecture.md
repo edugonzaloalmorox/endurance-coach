@@ -15,8 +15,9 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
                     +-> local Ollama model
 ```
 
-Historical FIT/FIT.GZ ingestion populates the persistence foundation. CSV metadata association,
-Intervals.icu synchronization, retrieval tools, and database-backed coaching remain planned.
+Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optional Strava-style
+CSV rows adding descriptive metadata by archive-relative filename. Intervals.icu synchronization,
+retrieval tools, and database-backed coaching remain planned.
 
 ## Components
 
@@ -33,6 +34,8 @@ Intervals.icu synchronization, retrieval tools, and database-backed coaching rem
 - `ingestion/fit.py` discovers archive-contained FIT/FIT.GZ inputs, bounds decompression, verifies
   FIT structure and CRCs with `fitdecode`, and normalizes summaries and original sensor samples into
   provider-neutral domain contracts.
+- `ingestion/csv_metadata.py` safely reads bounded archive-contained CSV metadata and indexes valid
+  rows by their FIT filename without treating CSV summaries as sensor measurements.
 - `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
   failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `config.py` loads local database and optional archive paths independently from Ollama settings.

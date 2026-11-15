@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="discover and parse inputs without changing the database",
     )
     import_fit.add_argument(
+        "--metadata-csv",
+        type=Path,
+        help="Strava-style activities.csv inside the archive (auto-detected at archive root)",
+    )
+    import_fit.add_argument(
         "--max-file-mib",
         type=_positive_int,
         default=128,
@@ -91,11 +96,12 @@ def main(argv: list[str] | None = None) -> int:
                     archive,
                     settings.database_path,
                     dry_run=args.dry_run,
+                    metadata_csv=args.metadata_csv,
                     max_raw_bytes=args.max_file_mib * 1024 * 1024,
                     max_content_bytes=args.max_content_mib * 1024 * 1024,
                 )
                 print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
-                return 0 if summary.failed == 0 else 1
+                return 0 if summary.failed == 0 and summary.metadata_failed == 0 else 1
             status = (
                 initialize_database(settings.database_path)
                 if args.database_command == "init"

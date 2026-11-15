@@ -79,6 +79,10 @@ def test_db_import_fit_reports_only_aggregate_counts(
         "duplicates": 0,
         "failed": 0,
         "imported": 1,
+        "metadata_associated": 0,
+        "metadata_failed": 0,
+        "metadata_rows": 0,
+        "metadata_unmatched": 0,
         "records_written": 2,
         "validated": 1,
     }

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from endurance_coach.ingestion.csv_metadata import HistoricalMetadata
 from endurance_coach.ingestion.fit import FitArtifact
 
 CURRENT_SCHEMA_VERSION = 1
@@ -183,6 +184,7 @@ class FitWriteResult:
     outcome: str
     activities_written: int = 0
     records_written: int = 0
+    metadata_associated: bool = False
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -268,12 +270,17 @@ def database_status(path: Path) -> DatabaseStatus:
         raise StorageError("database inspection failed") from exc
 
 
-def store_fit_artifact(path: Path, artifact: FitArtifact) -> FitWriteResult:
+def store_fit_artifact(
+    path: Path,
+    artifact: FitArtifact,
+    metadata: HistoricalMetadata | None = None,
+) -> FitWriteResult:
     """Persist one parsed FIT artifact atomically and idempotently.
 
     Args:
         path: Initialized SQLite database path.
         artifact: Parsed source hashes and normalized activity.
+        metadata: Optional descriptive CSV row matched to this artifact.
 
     Returns:
         Whether the artifact was imported or was already present.
@@ -294,8 +301,11 @@ def store_fit_artifact(path: Path, artifact: FitArtifact) -> FitWriteResult:
                 (artifact.raw_sha256, artifact.content_sha256),
             ).fetchone()
             if existing and existing[1] != "failed":
-                connection.rollback()
-                return FitWriteResult(outcome="duplicate")
+                associated = _associate_metadata(connection, activity.activity_id, metadata, now)
+                connection.commit()
+                return FitWriteResult(
+                    outcome="duplicate", metadata_associated=associated
+                )
             if existing:
                 connection.execute("DELETE FROM activity_sources WHERE id = ?", (existing[0],))
 
@@ -383,14 +393,51 @@ def store_fit_artifact(path: Path, artifact: FitArtifact) -> FitWriteResult:
                     for record in activity.records
                 ],
             )
+            associated = _associate_metadata(connection, activity.activity_id, metadata, now)
             connection.commit()
             return FitWriteResult(
                 outcome="imported",
                 activities_written=1,
                 records_written=len(activity.records),
+                metadata_associated=associated,
             )
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("FIT artifact persistence failed") from exc
+
+
+def _associate_metadata(
+    connection: sqlite3.Connection,
+    activity_id: str,
+    metadata: HistoricalMetadata | None,
+    now: str,
+) -> bool:
+    if metadata is None:
+        return False
+    identity = metadata.external_id or metadata.fit_relative_path
+    source_id = "strava-csv:" + hashlib.sha256(identity.encode()).hexdigest()
+    connection.execute(
+        """INSERT INTO activity_sources (
+               id, activity_id, source_type, external_id, relative_path,
+               raw_sha256, content_sha256, completeness, parse_status,
+               error_code, imported_at
+           ) VALUES (?, ?, 'strava_csv', ?, ?, NULL, NULL, 'summary_only',
+                     'imported', NULL, ?)
+           ON CONFLICT(source_type, external_id) DO UPDATE SET
+               activity_id = excluded.activity_id,
+               relative_path = excluded.relative_path,
+               imported_at = excluded.imported_at""",
+        (source_id, activity_id, identity, metadata.fit_relative_path, now),
+    )
+    connection.execute(
+        """UPDATE activities
+           SET name = COALESCE(?, name),
+               description = COALESCE(?, description),
+               activity_type = COALESCE(?, activity_type),
+               updated_at = ?
+           WHERE id = ?""",
+        (metadata.name, metadata.description, metadata.activity_type, now, activity_id),
+    )
+    return True
 
 
 def record_fit_failure(
