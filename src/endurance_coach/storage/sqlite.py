@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+
+from endurance_coach.ingestion.fit import FitArtifact
 
 CURRENT_SCHEMA_VERSION = 1
 
@@ -172,6 +176,15 @@ class DatabaseStatus:
         }
 
 
+@dataclass(frozen=True)
+class FitWriteResult:
+    """Outcome of one transactional FIT persistence attempt."""
+
+    outcome: str
+    activities_written: int = 0
+    records_written: int = 0
+
+
 def _connect(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -253,3 +266,199 @@ def database_status(path: Path) -> DatabaseStatus:
         raise
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("database inspection failed") from exc
+
+
+def store_fit_artifact(path: Path, artifact: FitArtifact) -> FitWriteResult:
+    """Persist one parsed FIT artifact atomically and idempotently.
+
+    Args:
+        path: Initialized SQLite database path.
+        artifact: Parsed source hashes and normalized activity.
+
+    Returns:
+        Whether the artifact was imported or was already present.
+
+    Raises:
+        StorageError: If persistence fails. No partial activity remains committed.
+    """
+    now = datetime.now(UTC).isoformat()
+    activity = artifact.activity
+    try:
+        with _connect(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """SELECT id, parse_status FROM activity_sources
+                   WHERE raw_sha256 = ? OR content_sha256 = ?
+                   ORDER BY parse_status = 'imported' DESC
+                   LIMIT 1""",
+                (artifact.raw_sha256, artifact.content_sha256),
+            ).fetchone()
+            if existing and existing[1] != "failed":
+                connection.rollback()
+                return FitWriteResult(outcome="duplicate")
+            if existing:
+                connection.execute("DELETE FROM activity_sources WHERE id = ?", (existing[0],))
+
+            connection.execute(
+                """INSERT INTO activities (
+                       id, activity_type, name, description, started_at_utc,
+                       timezone_offset_minutes, elapsed_seconds, moving_seconds,
+                       distance_m, elevation_gain_m, average_power_w,
+                       normalized_power_w, average_heart_rate_bpm, power_origin,
+                       quality_status, created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO NOTHING""",
+                (
+                    activity.activity_id,
+                    activity.activity_type,
+                    activity.name,
+                    activity.description,
+                    activity.started_at_utc.isoformat(),
+                    activity.timezone_offset_minutes,
+                    activity.elapsed_seconds,
+                    activity.moving_seconds,
+                    activity.distance_m,
+                    activity.elevation_gain_m,
+                    activity.average_power_w,
+                    activity.normalized_power_w,
+                    activity.average_heart_rate_bpm,
+                    activity.power_origin,
+                    activity.quality_status,
+                    now,
+                    now,
+                ),
+            )
+            activity_exists = connection.execute(
+                "SELECT 1 FROM activities WHERE id = ?", (activity.activity_id,)
+            ).fetchone()
+            if not activity_exists:
+                raise sqlite3.IntegrityError("activity insert failed")
+
+            connection.execute(
+                """INSERT INTO activity_sources (
+                       id, activity_id, source_type, external_id, relative_path,
+                       raw_sha256, content_sha256, completeness, parse_status,
+                       error_code, imported_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'imported', NULL, ?)""",
+                (
+                    f"fit-source:{artifact.raw_sha256}",
+                    activity.activity_id,
+                    artifact.source_type,
+                    artifact.content_sha256,
+                    artifact.relative_path,
+                    artifact.raw_sha256,
+                    artifact.content_sha256,
+                    "complete" if activity.quality_status == "complete" else "summary_only",
+                    now,
+                ),
+            )
+            connection.executemany(
+                """INSERT INTO activity_records (
+                       activity_id, session_index, record_index, timestamp_utc,
+                       elapsed_seconds, timer_seconds, power_w, power_origin,
+                       heart_rate_bpm, cadence_rpm, speed_mps, distance_m,
+                       altitude_m, temperature_c, latitude, longitude,
+                       left_right_balance_pct
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        activity.activity_id,
+                        record.session_index,
+                        record.record_index,
+                        record.timestamp_utc.isoformat() if record.timestamp_utc else None,
+                        record.elapsed_seconds,
+                        record.timer_seconds,
+                        record.power_w,
+                        record.power_origin,
+                        record.heart_rate_bpm,
+                        record.cadence_rpm,
+                        record.speed_mps,
+                        record.distance_m,
+                        record.altitude_m,
+                        record.temperature_c,
+                        record.latitude,
+                        record.longitude,
+                        record.left_right_balance_pct,
+                    )
+                    for record in activity.records
+                ],
+            )
+            connection.commit()
+            return FitWriteResult(
+                outcome="imported",
+                activities_written=1,
+                records_written=len(activity.records),
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("FIT artifact persistence failed") from exc
+
+
+def record_fit_failure(
+    path: Path,
+    *,
+    source_type: str,
+    relative_path: str,
+    error_code: str,
+    raw_sha256: str | None = None,
+    content_sha256: str | None = None,
+) -> FitWriteResult:
+    """Record one failed source artifact without exposing a partial activity.
+
+    Args:
+        path: Initialized SQLite database path.
+        source_type: `fit` or `fit_gz`.
+        relative_path: Archive-relative source path.
+        error_code: Privacy-safe failure classification.
+        raw_sha256: Raw artifact digest when reading succeeded.
+        content_sha256: Decompressed FIT digest when decompression succeeded.
+
+    Returns:
+        A failed or duplicate outcome.
+
+    Raises:
+        StorageError: If the failure record cannot be stored atomically.
+    """
+    now = datetime.now(UTC).isoformat()
+    identity = raw_sha256 or hashlib.sha256(relative_path.encode()).hexdigest()
+    try:
+        with _connect(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """SELECT id, parse_status FROM activity_sources
+                   WHERE (? IS NOT NULL AND raw_sha256 = ?)
+                      OR (? IS NOT NULL AND content_sha256 = ?)
+                   LIMIT 1""",
+                (raw_sha256, raw_sha256, content_sha256, content_sha256),
+            ).fetchone()
+            if existing and existing[1] != "failed":
+                connection.rollback()
+                return FitWriteResult(outcome="duplicate")
+            if existing:
+                connection.execute(
+                    """UPDATE activity_sources
+                       SET error_code = ?, imported_at = ?, relative_path = ?
+                       WHERE id = ?""",
+                    (error_code, now, relative_path, existing[0]),
+                )
+            else:
+                connection.execute(
+                    """INSERT INTO activity_sources (
+                           id, activity_id, source_type, external_id, relative_path,
+                           raw_sha256, content_sha256, completeness, parse_status,
+                           error_code, imported_at
+                       ) VALUES (?, NULL, ?, ?, ?, ?, ?, 'failed', 'failed', ?, ?)""",
+                    (
+                        f"fit-failure:{identity}",
+                        source_type,
+                        identity,
+                        relative_path,
+                        raw_sha256,
+                        content_sha256,
+                        error_code,
+                        now,
+                    ),
+                )
+            connection.commit()
+            return FitWriteResult(outcome="failed")
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("FIT failure persistence failed") from exc

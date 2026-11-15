@@ -1,11 +1,13 @@
 """Tests for the initial SQLite schema and migration behavior."""
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import endurance_coach.storage.sqlite as sqlite_storage
+from endurance_coach.ingestion import parse_fit_artifact
 from endurance_coach.storage.sqlite import (
     CURRENT_SCHEMA_VERSION,
     INITIAL_TABLES,
@@ -13,7 +15,9 @@ from endurance_coach.storage.sqlite import (
     UnsupportedSchemaVersion,
     database_status,
     initialize_database,
+    store_fit_artifact,
 )
+from tests.fit_fixture import write_fit_fixture
 
 
 def test_initialize_creates_exact_initial_tables(tmp_path: Path) -> None:
@@ -176,3 +180,31 @@ def test_failed_migration_rolls_back_all_schema_changes(
         ).fetchall()
         assert tables == []
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+
+
+def test_invalid_record_rolls_back_entire_fit_artifact(tmp_path: Path) -> None:
+    archive = tmp_path / "archive"
+    source = archive / "ride.fit"
+    database = tmp_path / "coach.sqlite3"
+    write_fit_fixture(source)
+    artifact = parse_fit_artifact(
+        source,
+        archive,
+        max_raw_bytes=1024 * 1024,
+        max_content_bytes=1024 * 1024,
+    )
+    invalid_record = replace(artifact.activity.records[0], power_w=-1)
+    invalid_activity = replace(
+        artifact.activity,
+        records=(invalid_record, *artifact.activity.records[1:]),
+    )
+    invalid_artifact = replace(artifact, activity=invalid_activity)
+    initialize_database(database)
+
+    with pytest.raises(StorageError, match="persistence failed"):
+        store_fit_artifact(database, invalid_artifact)
+
+    status = database_status(database)
+    assert status.table_counts["activities"] == 0
+    assert status.table_counts["activity_sources"] == 0
+    assert status.table_counts["activity_records"] == 0

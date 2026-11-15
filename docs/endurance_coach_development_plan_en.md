@@ -4,7 +4,7 @@
 
 **Sports goal:** recommend weekly long-distance cycling workouts, adjust them daily based on training load and recovery, and improve the ability to sustain performance under fatigue.
 
-**Working approach:** GitHub Issues are the backlog and acceptance source of truth. Each dependency-ready issue moves through PM specification, Engineer implementation, and independent QA verification under [`process.md`](process.md) and the role definitions in [`agents/`](agents/). The development agents that operate this factory are distinct from the product's runtime coaching agent. The product uses one runtime agent with a local Ollama model and deterministic Python metrics and validation; do not introduce runtime agent-orchestration frameworks in M1.
+**Working approach:** Implement requested product behavior, demonstrate it, add essential tests, and run the final pytest and Ruff checks under [`process.md`](process.md). GitHub issues and specialized development roles are optional aids. Development agents are distinct from the product's runtime coaching agent. The product uses one runtime agent with a local Ollama model and deterministic Python metrics and validation; do not introduce runtime agent-orchestration frameworks in M1.
 
 ## Cross-cutting requirements
 
@@ -133,13 +133,15 @@ M4 may be prototyped using synthetic data before M3 is finished, but introduce n
 - Claims of successful live execution only when actually tested.
 - Evidence explains the inputs, outputs, failures, and why each piece of logic belongs in a skill, tool, or Python service.
 
-## Factory execution sequence
+## Development sequence
 
-1. The Orchestrator selects one dependency-ready GitHub issue without skipping blocked work.
-2. The PM turns that issue into an executable specification and escalates consequential ambiguity.
-3. The Engineer implements the approved specification in an issue-specific branch or worktree and records exact evidence.
-4. An independent QA Engineer verifies every acceptance criterion against the exact candidate commit.
-5. Human-authorized integration occurs only after current-head QA and required CI pass; later milestones retain the dependency order above.
+1. Implement the requested functionality in milestone order where dependencies matter.
+2. Demonstrate the working behavior with representative data.
+3. Add essential automated coverage for behavior and important failures.
+4. Run `uv run pytest` and `uv run ruff check .` as final verification.
+
+Issues, branches, pull requests, PM review, and independent QA may be used when helpful or required
+by repository permissions, but they are not mandatory lifecycle stages.
 
 ## Out of scope for the MVP
 

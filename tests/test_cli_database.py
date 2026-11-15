@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from endurance_coach.cli import main
+from tests.fit_fixture import write_fit_fixture
 
 
 def test_db_init_and_status_report_only_safe_metadata(
@@ -58,3 +59,36 @@ def test_db_init_returns_safe_error_for_invalid_path(tmp_path: Path, monkeypatch
     output = capsys.readouterr().out
     assert json.loads(output) == {"error": "database initialization failed"}
     assert str(tmp_path) not in output
+
+
+def test_db_import_fit_reports_only_aggregate_counts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    archive = tmp_path / "private-athlete-archive"
+    database = tmp_path / "private-athlete-database.sqlite3"
+    write_fit_fixture(archive / "identifying-file-name.fit.gz", compressed=True)
+    monkeypatch.setenv("ENDURANCE_COACH_DB_PATH", str(database))
+
+    assert main(["db", "import-fit", str(archive)]) == 0
+
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "activities_written": 1,
+        "discovered": 1,
+        "dry_run": False,
+        "duplicates": 0,
+        "failed": 0,
+        "imported": 1,
+        "records_written": 2,
+        "validated": 1,
+    }
+    assert "private-athlete" not in output
+    assert "identifying-file-name" not in output
+
+
+def test_db_import_fit_requires_configured_archive(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("ENDURANCE_COACH_ARCHIVE_PATH", raising=False)
+
+    assert main(["db", "import-fit"]) == 2
+
+    assert json.loads(capsys.readouterr().out) == {"error": "archive_not_configured"}

@@ -1,7 +1,7 @@
 # Architecture
 
 The design is intentionally small. Pydantic models form the boundaries, pure metric functions do the
-cycling arithmetic, SQLite provides local persistence, and backlog issues incrementally connect
+cycling arithmetic, SQLite provides local persistence, and incremental product work connects
 historical ingestion and Agent Skills to Ollama.
 
 ```text
@@ -15,8 +15,8 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
                     +-> local Ollama model
 ```
 
-Historical FIT/CSV ingestion, Intervals.icu synchronization, retrieval tools, and database-backed
-coaching are planned but not implemented by the current persistence foundation.
+Historical FIT/FIT.GZ ingestion populates the persistence foundation. CSV metadata association,
+Intervals.icu synchronization, retrieval tools, and database-backed coaching remain planned.
 
 ## Components
 
@@ -27,15 +27,21 @@ coaching are planned but not implemented by the current persistence foundation.
 - `sample_data.py` creates ten rides spanning 14 calendar days. The same records are committed in
   `data/synthetic_activities.json` for inspection and repeatable tests.
 - `storage/sqlite.py` owns the versioned schema, transactional initialization, foreign-key and data
-  constraints, and privacy-safe status inspection. It uses the Python standard library `sqlite3`
-  module and `PRAGMA user_version`; no ORM or migration framework is present.
+  constraints, per-file import transactions, idempotent source hashes, and privacy-safe status
+  inspection. It uses the Python standard library `sqlite3` module and `PRAGMA user_version`; no ORM
+  or migration framework is present.
+- `ingestion/fit.py` discovers archive-contained FIT/FIT.GZ inputs, bounds decompression, verifies
+  FIT structure and CRCs with `fitdecode`, and normalizes summaries and original sensor samples into
+  provider-neutral domain contracts.
+- `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
+  failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `config.py` loads local database and optional archive paths independently from Ollama settings.
 - `skills.py` defines `SkillLoader`. Both methods are intentionally unimplemented.
 - `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
-- `cli.py` exposes safe scaffold operations plus `db init` and `db status`. It deliberately has no
-  historical import, synchronization, or coaching command yet.
+- `cli.py` exposes safe scaffold operations plus `db init`, `db status`, and `db import-fit`. It has
+  no provider synchronization or coaching command yet.
 
 ## Persistence boundary
 
@@ -66,12 +72,10 @@ JSON, and validate it with `WorkoutRecommendation`. It must not silently invent 
 No networking occurs in metrics, model validation, skill loading, or sample-data generation. Ollama
 is the sole future network boundary and is expected to run locally.
 
-## Development ownership
+## Development boundary
 
-GitHub Issues define product work and acceptance criteria. The Dark Software Factory delivers each
-dependency-ready issue through PM specification, Engineer implementation, and independent QA
-verification, following [`process.md`](process.md) and the role definitions in [`agents/`](agents/).
-Those development roles are separate from the product's runtime coaching agent shown above. Factory
-agents change and verify the repository; the runtime agent loads coaching skills and produces
-validated recommendations without gaining authority to apply training-plan changes.
+Development agents change and verify the repository using the optional guidance in
+[`process.md`](process.md) and [`agents/`](agents/). They are separate from the product's runtime
+coaching agent shown above. The runtime agent loads coaching skills and produces validated
+recommendations without gaining authority to apply training-plan changes.
 

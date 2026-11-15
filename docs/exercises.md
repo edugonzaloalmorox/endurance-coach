@@ -1,13 +1,11 @@
 # Deferred executable specifications
 
-Five tests marked `exercise` specify behavior assigned to open implementation issues. They remain
-collected with their assertions and inputs unchanged, but are temporarily marked
-`xfail(strict=True)` under the exceptional policy in
-[`testing-guidelines.md`](testing-guidelines.md). Strict mode makes an unexpected pass fail the suite
-until the owning issue deliberately removes its marker.
+Five tests marked `exercise` preserve unfinished product specifications. They remain collected with
+their assertions and inputs unchanged and are temporarily marked `xfail(strict=True)`. Strict mode
+makes an unexpected pass fail the suite until the behavior is implemented and the marker is removed.
 
-Do not skip these tests, make their xfail markers non-strict, or weaken their assertions. The owning
-implementation issue must remove its marker when it implements the behavior.
+Do not skip these tests, make their xfail markers non-strict, or weaken their assertions merely to
+obtain a pass.
 
 ## Skill discovery — issue #15
 
@@ -49,7 +47,6 @@ the strict xfail. Malformed-output repair and bounded retries remain assigned to
 
 ## Verification
 
-Run `uv run pytest` and report all five expected failures with their owning issues. Also run
-`uv run pytest -m "not exercise"` and `uv run ruff check .`. Completion of an owning issue means its
-strict xfail marker is removed and its unchanged executable specification passes.
+Run `uv run pytest` and `uv run ruff check .`. When a deferred behavior is implemented, remove its
+strict xfail marker and make the executable specification pass.
 

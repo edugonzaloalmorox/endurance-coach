@@ -9,7 +9,7 @@ One or two sentences on what should be true when this is done.
 
 ## Out of scope
 
-- Something that does not belong in this task, moved to #TASK-NUMBER
+- Something that does not belong in this task, optionally linked to a tracking item
 
 ## Constraints
 
