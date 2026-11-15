@@ -18,3 +18,18 @@ htmlcov/
 *.sqlite3-*
 data/*.db
 
+# Private training archives and generated analytical data.
+*.fit
+*.fit.gz
+*.gpx
+*.parquet
+!tests/fixtures/**/*.fit
+!tests/fixtures/**/*.fit.gz
+!tests/fixtures/**/*.gpx
+/activities.csv
+/activities.json
+/local-data/
+/private-data/
+/data/archive/
+/data/private/
+
