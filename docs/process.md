@@ -27,21 +27,104 @@ Alternate paths:
 
 State transitions, retry limits, and permissions should ultimately be enforced by deterministic orchestration code rather than model judgment alone.
 
+## Execution efficiency policy
+
+- Keep routine, short, or inherently sequential implementation in one Engineer context. That
+  Engineer owns all issue-authorized implementation, focused development tests, and directly
+  required governance/documentation edits until it identifies a stable candidate.
+- Use subagents only for genuinely independent work with isolated inputs and outputs. Do not split a
+  sequential implementation merely to create more handoffs. Final QA remains a separate read-only
+  context when the environment supports it.
+- Use focused tests while iterating. After the candidate is stable, run the repository's required
+  final local verification once against that candidate. Hosted CI remains the final full-suite
+  release verification for the exact pull-request head.
+- Automatic execution allows three total Engineering attempts: the initial implementation and at
+  most two automated repair attempts. A further failure or an unreproducible result transitions to
+  `NEEDS_HUMAN`.
+- Lower reasoning effort may be used for routine classification and housekeeping only when the
+  execution environment supports explicit effort selection. Architecture, safety, privacy,
+  ambiguity, permissions, and failure analysis require sufficient reasoning for their risk. Record
+  unsupported effort selection as `unavailable`; never infer that a setting was applied.
+
 ## One-issue execution loop
 
 1. **Select:** Orchestrator chooses a dependency-ready issue. Do not skip ahead to blocked issues. Start with one implementation issue at a time until isolation is proven.
 2. **Groom (PM):** Produce an executable specification: intended outcome, out-of-scope, acceptance scenarios, data contracts, dependencies, assumptions, risk level, and concrete demonstration evidence.
 3. **Risk gate:** If the specification requires architecture changes, new credentials/scopes, security-sensitive behavior, or other listed escalations, mark `NEEDS_HUMAN` and present a short decision request. Otherwise proceed autonomously.
 4. **Prepare isolated environment:** Create an issue-specific branch/worktree and keep a log of the base commit and environment. Never edit `master` directly.
-5. **Implement (Engineer):** Complete the code, tests, fixtures and issue-authorized documentation. Run focused checks and the relevant project commands, commit the work, and identify the exact candidate SHA and explicit comparison base. The Engineer owns core mechanisms, including Agent Skills and Ollama integration.
-6. **Review documentation impact:** Invoke `.agents/skills/docs-sync/SKILL.md` against that base and candidate. Update only materially affected `README.md` and `docs/` files, and state only behavior verified in the candidate code, tests, configuration, or approved specification. Commit any documentation edits, treat the new commit as the candidate, and repeat the review until the report describes the stable exact commit.
-7. **Validate the Documentation Impact Report:** Store the report outside the candidate commit, normally as durable issue or pull-request evidence, with result `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`. Run `.agents/validate_docs_impact.py` with the external JSON artifact and exact candidate SHA. Only a zero exit for a current `UPDATED` or evidence-based `NO_DOC_CHANGE` report permits QA assignment. Missing, unreadable, malformed, unknown, stale, or `BLOCKED` evidence stops progression. Any later commit invalidates the report and requires steps 6–7 again.
-8. **Publish the verification candidate:** Push the issue branch and create or update its pull request. Record the exact head commit; automated CI starts from that pull-request event. A draft pull request may be used while verification is incomplete.
-9. **Verify (QA and CI):** QA first confirms the documentation validator succeeded for the exact proposed commit, then uses a separate session or worker where possible to independently inspect specification compliance and run tests. QA refuses a missing, stale, malformed, or blocked documentation handoff, outputs `PASS` or `FAIL` with evidence, and never edits code. CI independently checks the exact pull-request head.
-10. **On FAIL:** Return Engineer, documentation-gate, QA, or product/configuration CI failures to the Engineer for correction. Any correction creates a new candidate that must repeat documentation review and validation before independent QA and CI can establish current-head evidence. Allow no more than **2 automated fix attempts** by default; escalate after repeated failure or unreproducible checks. Classify CI platform outages and unavailable runners as infrastructure failures: retry when service recovers, but never count missing, cancelled, stale or unavailable CI as success.
-11. **On PASS:** Mark the pull request `PR_READY` only when the Documentation Impact Gate, QA, every required CI and policy check, and all acceptance criteria pass for the same current head. A green unit-test run alone is not sufficient proof of the intended outcome.
-12. **Integrate:** By default the human authorizes the merge based on specification, demo, documentation-impact evidence, QA evidence and risk summary. The issue can close when the change is integrated and behavior is verified. Automerge for low-risk issues requires a separately approved policy, configured branch protection, and required checks.
-13. **Continue:** Orchestrator can select the next ready issue once the prior issue is integrated or the environment has proven safe isolation. It must honor stop conditions, dependencies and escalation states.
+5. **Implement (Engineer):** In one Engineer context for routine sequential work, complete the code,
+   tests, fixtures, and issue-authorized governance/documentation edits. Use focused checks while
+   iterating. Once stable, run the required final local verification once, commit the work, and
+   identify the exact candidate SHA and explicit comparison base. The Engineer owns core
+   mechanisms, including Agent Skills and Ollama integration.
+6. **Route documentation review:** Run the deterministic advisory pre-check defined below against
+   the explicit base and stable candidate. Record `MATERIAL_CANDIDATE` or
+   `NO_MATERIAL_INDICATOR`. This result only selects the review depth; it cannot produce an
+   authoritative Documentation Impact Report result or permit QA to bypass `docs-sync`.
+7. **Review documentation impact:** Invoke `.agents/skills/docs-sync/SKILL.md` against that base and
+   exact candidate. A `MATERIAL_CANDIDATE` receives the full affected-document review. A
+   `NO_MATERIAL_INDICATOR` uses the concise review path but still requires an evidence-based
+   `NO_DOC_CHANGE` report. Only the skill may return `UPDATED`, `NO_DOC_CHANGE`, or `BLOCKED`.
+   Update only materially affected `README.md` and `docs/` content, distinguish implemented,
+   partial, planned, and unverified behavior, and do not rewrite unrelated documentation. Commit
+   any documentation edits, treat the new commit as the candidate, and repeat the review until the
+   report describes the stable exact commit.
+8. **Validate the Documentation Impact Report:** Store the report outside the candidate commit,
+   normally as durable issue or pull-request evidence. Run `.agents/validate_docs_impact.py` with
+   the external JSON artifact and exact candidate SHA. Only a zero exit for a current `UPDATED` or
+   evidence-based `NO_DOC_CHANGE` report permits QA assignment. Missing, unreadable, malformed,
+   unknown, stale, or `BLOCKED` evidence stops progression. Any later implementation or
+   documentation commit changes the candidate SHA and requires steps 6–8 again.
+9. **Publish the verification candidate:** Push the issue branch and create or update its pull
+   request. Record the exact head commit; automated CI starts from that pull-request event. A draft
+   pull request may be used while verification is incomplete.
+10. **Verify (QA and CI):** QA first confirms the documentation validator succeeded for the exact
+    proposed commit, then uses a separate read-only session or worker where possible to
+    independently inspect every acceptance criterion and run acceptance-focused checks. QA may
+    rely on successful exact-head hosted CI instead of redundantly repeating full-suite coverage
+    when its checks do not require it. QA refuses a missing, stale, malformed, or blocked
+    documentation handoff, outputs `PASS` or `FAIL` with evidence, and never edits code. Hosted CI
+    independently runs the final full-suite release verification for the exact pull-request head.
+11. **On FAIL:** Return Engineering, documentation-gate, QA, or product/configuration CI failures to
+    the Engineer for correction. Any correction creates a new candidate and invalidates prior
+    documentation, QA, and CI evidence. Repeat documentation routing, `docs-sync`, report
+    validation, independent QA, and hosted CI. Allow at most three total Engineering attempts: the
+    initial implementation plus two automated repair attempts. A further failure or an
+    unreproducible result transitions to `NEEDS_HUMAN`. Classify CI platform outages and unavailable
+    runners as infrastructure failures: retry when service recovers, but never count missing,
+    cancelled, stale, or unavailable CI as success.
+12. **On PASS:** Mark the pull request `PR_READY` only when the Documentation Impact Gate, QA, every
+    required CI and policy check, and all acceptance criteria pass for the same current head. A
+    green unit-test run alone is not sufficient proof of the intended outcome.
+13. **Integrate:** By default the human authorizes the merge based on specification, demo,
+    documentation-impact evidence, QA evidence, and risk summary. The issue can close when the
+    change is integrated and behavior is verified. Automerge for low-risk issues requires a
+    separately approved policy, configured branch protection, and required checks.
+14. **Continue:** Orchestrator can select the next ready issue once the prior issue is integrated or
+    the environment has proven safe isolation. It must honor stop conditions, dependencies, and
+    escalation states.
+
+## Deterministic documentation-impact pre-check
+
+The Orchestrator compares the explicit base SHA with the stable candidate SHA and classifies the
+changed paths conservatively. The mapping mirrors the material-change categories in
+`.agents/skills/docs-sync/SKILL.md`:
+
+| Changed path | Material-change indicator |
+| --- | --- |
+| `README.md`, `docs/**`, or `AGENTS.md` | user/contributor behavior or development-agent responsibility |
+| `pyproject.toml`, `uv.lock`, or configuration templates | setup, dependency, interface, or configuration |
+| `src/**` or `coach_skills/**` | runtime behavior, data contract, validation, agent/tool flow, persistence, safety, or privacy |
+| `.github/**` or `.agents/**` | CI, testing, release, orchestration, or development-agent responsibility |
+| Any other unrecognized path | conservative material candidate requiring full review |
+
+If any changed path matches a material indicator, output `MATERIAL_CANDIDATE`. Output
+`NO_MATERIAL_INDICATOR` only when every changed path is limited to implementation-only tests or
+fixtures and the diff changes no documented contract, executable specification, safety rule, or
+deferred-test policy. The inputs, changed paths, matched categories, and result are recorded so the
+classification is reproducible. This pre-check is advisory: both results invoke `docs-sync` for the
+exact candidate and require a successfully validated external report before QA. Semantic review by
+`docs-sync` remains authoritative because paths alone cannot prove documentation impact.
 
 ## Human escalation policy
 
@@ -49,6 +132,7 @@ State transitions, retry limits, and permissions should ultimately be enforced b
 - Significant architecture or interface changes.
 - New dependencies or model/provider changes outside approved constraints.
 - Secrets, OAuth scopes, network permissions or third-party writes.
+- Repository settings, branch protection, destructive changes, or merge authorization.
 - Ambiguous/conflicting acceptance criteria affecting behavior.
 - Training-safety, athlete approval, or personal-data protections.
 - Destructive operations, failing CI that cannot be resolved, or exhausted retry limits.
@@ -56,6 +140,94 @@ State transitions, retry limits, and permissions should ultimately be enforced b
 **Do not escalate for:** naming, routine refactoring inside agreed boundaries, writing ordinary unit tests, or simple implementation tradeoffs covered by the spec.
 
 ## Handoff contracts
+
+Every PM, Engineering, Documentation Impact, QA, and Orchestrator handoff uses a compact
+machine-readable record with at least these fields:
+
+```json
+{
+  "phase": "ENGINEERING",
+  "issue": 75,
+  "specification_version": "1.1",
+  "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "duration_seconds": 120,
+  "retry_count": 0,
+  "token_usage": "unavailable",
+  "outcome": "PASS",
+  "evidence_links": [
+    "https://github.com/edugonzaloalmorox/endurance-coach/issues/75"
+  ],
+  "blockers": []
+}
+```
+
+Use the actual token count only when the execution environment exposes it; otherwise use the
+literal string `unavailable`. Never estimate token usage. Do not include prompts, hidden reasoning,
+credentials, secrets, or athlete data. Link to durable issue, pull-request, Documentation Impact
+Report, QA, and CI evidence instead of copying complete command logs into every phase record. The
+durable evidence must retain exact commands, exit codes, concise result counts, and material
+failures. Use `null` for `candidate_sha` only before a candidate exists.
+
+These compact illustrative records demonstrate both documentation routes and their identical
+exact-candidate invalidation rule:
+
+```json
+{
+  "phase": "DOCUMENTATION_IMPACT",
+  "issue": 75,
+  "specification_version": "1.1",
+  "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "duration_seconds": 45,
+  "retry_count": 0,
+  "token_usage": "unavailable",
+  "outcome": "PASS",
+  "evidence_links": [
+    "https://github.com/edugonzaloalmorox/endurance-coach/issues/75"
+  ],
+  "blockers": [],
+  "routing": "MATERIAL_CANDIDATE",
+  "docs_sync_invoked": true,
+  "report_result": "UPDATED",
+  "validated_candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validator_exit_code": 0,
+  "qa_allowed": true,
+  "after_later_commit": {
+    "candidate_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "prior_report_status": "STALE",
+    "qa_allowed": false,
+    "required_next_phase": "DOCUMENTATION_IMPACT"
+  }
+}
+```
+
+```json
+{
+  "phase": "DOCUMENTATION_IMPACT",
+  "issue": 75,
+  "specification_version": "1.1",
+  "candidate_sha": "cccccccccccccccccccccccccccccccccccccccc",
+  "duration_seconds": 20,
+  "retry_count": 0,
+  "token_usage": "unavailable",
+  "outcome": "PASS",
+  "evidence_links": [
+    "https://github.com/edugonzaloalmorox/endurance-coach/issues/75"
+  ],
+  "blockers": [],
+  "routing": "NO_MATERIAL_INDICATOR",
+  "docs_sync_invoked": true,
+  "report_result": "NO_DOC_CHANGE",
+  "validated_candidate_sha": "cccccccccccccccccccccccccccccccccccccccc",
+  "validator_exit_code": 0,
+  "qa_allowed": true,
+  "after_later_commit": {
+    "candidate_sha": "dddddddddddddddddddddddddddddddddddddddd",
+    "prior_report_status": "STALE",
+    "qa_allowed": false,
+    "required_next_phase": "DOCUMENTATION_IMPACT"
+  }
+}
+```
 
 **PM → Engineer**
 - Issue link and dependency status.
