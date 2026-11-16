@@ -16,8 +16,9 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
 ```
 
 Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optional Strava-style
-CSV rows adding descriptive metadata by archive-relative filename. Intervals.icu synchronization,
-retrieval tools, and database-backed coaching remain planned.
+CSV rows adding descriptive metadata by archive-relative filename. Bounded Intervals.icu summary
+retrieval is implemented; normalization, incremental persistence, and database-backed coaching
+remain planned.
 
 ## Components
 
@@ -36,9 +37,12 @@ retrieval tools, and database-backed coaching remain planned.
   provider-neutral domain contracts.
 - `ingestion/csv_metadata.py` safely reads bounded archive-contained CSV metadata and indexes valid
   rows by their FIT filename without treating CSV summaries as sensor measurements.
+- `integrations/intervals.py` retrieves read-only activity summaries in bounded date windows and
+  retains the raw provider boundary for later normalization.
 - `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
   failure recording, and aggregate reporting without exposing archive paths or measurements.
-- `config.py` loads local database and optional archive paths independently from Ollama settings.
+- `config.py` loads local database, archive, Intervals.icu, and Ollama settings without performing
+  I/O.
 - `skills.py` defines `SkillLoader`. Both methods are intentionally unimplemented.
 - `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
