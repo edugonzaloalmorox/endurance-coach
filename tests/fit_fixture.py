@@ -54,7 +54,10 @@ def _timestamp(value: datetime) -> int:
 
 
 def build_fit_bytes(
-    *, include_power: bool = True, multiple_sessions: bool = False
+    *,
+    include_power: bool = True,
+    multiple_sessions: bool = False,
+    malformed_optional_field: bool = False,
 ) -> bytes:
     """Return a valid synthetic cycling FIT payload with two irregular samples."""
     start = datetime(2026, 1, 2, 8, 0, tzinfo=UTC)
@@ -87,6 +90,11 @@ def build_fit_bytes(
     data = bytearray()
     data += _definition(0, 0, file_fields)
     data += bytes((0, 4)) + struct.pack("<I", start_value)
+    if malformed_optional_field:
+        # Synthetic device-info field with a nonstandard size. Real exporters sometimes include
+        # optional definitions like this; core activity messages remain structurally valid.
+        data += _definition(3, 23, [(0, 1, 0x86)])
+        data += bytes((3, 0))
     data += _definition(1, 20, record_fields)
     samples = [
         (start_value, 120, 80, 0, 7000, 180),

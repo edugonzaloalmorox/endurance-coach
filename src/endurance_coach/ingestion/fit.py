@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import io
 import os
+import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -210,27 +211,29 @@ def _parse_fit_content(content: bytes, content_sha256: str) -> ImportedActivity:
     activity_name: str | None = None
 
     try:
-        with fitdecode.FitReader(
-            io.BytesIO(content),
-            check_crc=fitdecode.CrcCheck.RAISE,
-            error_handling=fitdecode.ErrorHandling.RAISE,
-        ) as reader:
-            for frame in reader:
-                if frame.frame_type != fitdecode.FIT_FRAME_DATA:
-                    continue
-                if frame.name == "file_id":
-                    file_created_at = _utc(_value(frame, "time_created"))
-                elif frame.name == "activity":
-                    activity_sport = _text(_value(frame, "sport")) or activity_sport
-                    activity_name = _text(_value(frame, "name")) or activity_name
-                elif frame.name == "session":
-                    sessions.append(_decode_session(frame))
-                elif frame.name == "record":
-                    raw_records.append(_decode_record(frame))
-                elif frame.name in {"lap", "event", "device_info"}:
-                    # FitReader validates these supported messages. Their fields are not persisted
-                    # until the schema has a product use for them.
-                    continue
+        with warnings.catch_warnings(record=True) as parse_warnings:
+            warnings.simplefilter("always", UserWarning)
+            with fitdecode.FitReader(
+                io.BytesIO(content),
+                check_crc=fitdecode.CrcCheck.RAISE,
+                error_handling=fitdecode.ErrorHandling.WARN,
+            ) as reader:
+                for frame in reader:
+                    if frame.frame_type != fitdecode.FIT_FRAME_DATA:
+                        continue
+                    if frame.name == "file_id":
+                        file_created_at = _utc(_value(frame, "time_created"))
+                    elif frame.name == "activity":
+                        activity_sport = _text(_value(frame, "sport")) or activity_sport
+                        activity_name = _text(_value(frame, "name")) or activity_name
+                    elif frame.name == "session":
+                        sessions.append(_decode_session(frame))
+                    elif frame.name == "record":
+                        raw_records.append(_decode_record(frame))
+                    elif frame.name in {"lap", "event", "device_info"}:
+                        # FitReader validates these supported messages. Their fields are not
+                        # persisted until the schema has a product use for them.
+                        continue
     except FitIngestionError:
         raise
     except Exception as exc:
@@ -274,7 +277,9 @@ def _parse_fit_content(content: bytes, content_sha256: str) -> ImportedActivity:
         normalized_power_w=normalized_power,
         average_heart_rate_bpm=average_heart_rate,
         power_origin=power_origin,
-        quality_status="complete" if sessions and records else "partial",
+        quality_status=(
+            "complete" if sessions and records and not parse_warnings else "partial"
+        ),
     )
 
 

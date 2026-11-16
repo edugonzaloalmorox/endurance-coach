@@ -93,6 +93,21 @@ def test_multiple_sessions_preserve_session_indices_and_sampling(tmp_path: Path)
     assert artifact.activity.distance_m == 550
 
 
+def test_nonstandard_optional_field_preserves_core_data_as_partial(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "archive"
+    path = archive / "nonstandard-optional-field.fit"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(build_fit_bytes(malformed_optional_field=True))
+
+    artifact = _parse(path, archive)
+
+    assert artifact.activity.quality_status == "partial"
+    assert artifact.activity.average_power_w == 200
+    assert len(artifact.activity.records) == 2
+
+
 def test_corrupt_fit_has_safe_error_and_content_hash(tmp_path: Path) -> None:
     archive = tmp_path / "archive"
     path = archive / "corrupt.fit"
