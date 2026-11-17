@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from endurance_coach.ingestion.csv_metadata import HistoricalMetadata
 from endurance_coach.ingestion.fit import FitArtifact
+from endurance_coach.integrations import NormalizedIntervalsActivity
 
 CURRENT_SCHEMA_VERSION = 1
 
@@ -185,6 +186,22 @@ class FitWriteResult:
     activities_written: int = 0
     records_written: int = 0
     metadata_associated: bool = False
+
+
+@dataclass(frozen=True)
+class SyncState:
+    """Incremental cursor and retry overlap for one external source."""
+
+    last_activity_date: date | None
+    overlap_days: int = 7
+
+
+@dataclass(frozen=True)
+class IntervalsWriteResult:
+    """Aggregate outcome of one atomic Intervals.icu persistence batch."""
+
+    inserted: int
+    updated: int
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -509,3 +526,167 @@ def record_fit_failure(
             return FitWriteResult(outcome="failed")
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("FIT failure persistence failed") from exc
+
+
+def get_intervals_sync_state(path: Path) -> SyncState:
+    """Read the Intervals.icu cursor without changing database state."""
+    try:
+        with _connect(path) as connection:
+            row = connection.execute(
+                "SELECT last_activity_date, overlap_days FROM sync_state WHERE source = 'intervals'"
+            ).fetchone()
+        if row is None:
+            return SyncState(last_activity_date=None)
+        return SyncState(
+            last_activity_date=date.fromisoformat(row[0]) if row[0] else None,
+            overlap_days=int(row[1]),
+        )
+    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
+        raise StorageError("sync state inspection failed") from exc
+
+
+def mark_intervals_sync_running(path: Path) -> None:
+    """Record the start of an Intervals.icu attempt without advancing its cursor."""
+    _set_intervals_sync_status(path, "running", None)
+
+
+def mark_intervals_sync_failed(path: Path, error_code: str) -> None:
+    """Record a safe failure classification without advancing the cursor."""
+    _set_intervals_sync_status(path, "failed", error_code)
+
+
+def _set_intervals_sync_status(path: Path, status: str, error_code: str | None) -> None:
+    now = datetime.now(UTC).isoformat()
+    try:
+        with _connect(path) as connection:
+            connection.execute(
+                """INSERT INTO sync_state (
+                       source, status, last_error_code, updated_at
+                   ) VALUES ('intervals', ?, ?, ?)
+                   ON CONFLICT(source) DO UPDATE SET
+                       status = excluded.status,
+                       last_error_code = excluded.last_error_code,
+                       updated_at = excluded.updated_at""",
+                (status, error_code, now),
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("sync state update failed") from exc
+
+
+def store_intervals_activities(
+    path: Path,
+    activities: tuple[NormalizedIntervalsActivity, ...],
+    *,
+    synced_through: date,
+) -> IntervalsWriteResult:
+    """Upsert one provider batch and advance its cursor in a single transaction.
+
+    Args:
+        path: Initialized SQLite database path.
+        activities: Validated provider summaries with stable source identities.
+        synced_through: Inclusive date through which retrieval succeeded.
+
+    Returns:
+        Inserted and updated activity counts.
+
+    Raises:
+        StorageError: If any write fails; the batch and cursor are rolled back together.
+    """
+    now = datetime.now(UTC).isoformat()
+    inserted = updated = 0
+    try:
+        with _connect(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for normalized in activities:
+                activity = normalized.activity
+                existed = connection.execute(
+                    "SELECT 1 FROM activities WHERE id = ?", (activity.activity_id,)
+                ).fetchone()
+                connection.execute(
+                    """INSERT INTO activities (
+                           id, activity_type, name, description, started_at_utc,
+                           timezone_offset_minutes, elapsed_seconds, moving_seconds,
+                           distance_m, elevation_gain_m, average_power_w,
+                           normalized_power_w, average_heart_rate_bpm, power_origin,
+                           quality_status, created_at, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(id) DO UPDATE SET
+                           activity_type = excluded.activity_type,
+                           name = excluded.name,
+                           description = excluded.description,
+                           started_at_utc = excluded.started_at_utc,
+                           timezone_offset_minutes = excluded.timezone_offset_minutes,
+                           elapsed_seconds = excluded.elapsed_seconds,
+                           moving_seconds = excluded.moving_seconds,
+                           distance_m = excluded.distance_m,
+                           elevation_gain_m = excluded.elevation_gain_m,
+                           average_power_w = excluded.average_power_w,
+                           normalized_power_w = excluded.normalized_power_w,
+                           average_heart_rate_bpm = excluded.average_heart_rate_bpm,
+                           power_origin = excluded.power_origin,
+                           quality_status = excluded.quality_status,
+                           updated_at = excluded.updated_at""",
+                    (
+                        activity.activity_id,
+                        activity.activity_type,
+                        activity.name,
+                        activity.description,
+                        activity.started_at_utc.isoformat(),
+                        activity.timezone_offset_minutes,
+                        activity.elapsed_seconds,
+                        activity.moving_seconds,
+                        activity.distance_m,
+                        activity.elevation_gain_m,
+                        activity.average_power_w,
+                        activity.normalized_power_w,
+                        activity.average_heart_rate_bpm,
+                        activity.power_origin,
+                        activity.quality_status,
+                        now,
+                        now,
+                    ),
+                )
+                source_id = "intervals:" + hashlib.sha256(
+                    normalized.external_id.encode()
+                ).hexdigest()
+                connection.execute(
+                    """INSERT INTO activity_sources (
+                           id, activity_id, source_type, external_id, relative_path,
+                           raw_sha256, content_sha256, completeness, parse_status,
+                           error_code, imported_at
+                       ) VALUES (?, ?, 'intervals', ?, NULL, NULL, NULL,
+                                 'summary_only', 'imported', NULL, ?)
+                       ON CONFLICT(source_type, external_id) DO UPDATE SET
+                           activity_id = excluded.activity_id,
+                           completeness = excluded.completeness,
+                           parse_status = excluded.parse_status,
+                           error_code = NULL,
+                           imported_at = excluded.imported_at""",
+                    (source_id, activity.activity_id, normalized.external_id, now),
+                )
+                if existed:
+                    updated += 1
+                else:
+                    inserted += 1
+            connection.execute(
+                """INSERT INTO sync_state (
+                       source, last_successful_at, last_activity_date, status,
+                       last_error_code, updated_at
+                   ) VALUES ('intervals', ?, ?, 'succeeded', NULL, ?)
+                   ON CONFLICT(source) DO UPDATE SET
+                       last_successful_at = excluded.last_successful_at,
+                       last_activity_date = MAX(
+                           COALESCE(
+                               sync_state.last_activity_date, excluded.last_activity_date
+                           ),
+                           excluded.last_activity_date
+                       ),
+                       status = excluded.status,
+                       last_error_code = NULL,
+                       updated_at = excluded.updated_at""",
+                (now, synced_through.isoformat(), now),
+            )
+            connection.commit()
+        return IntervalsWriteResult(inserted=inserted, updated=updated)
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("Intervals.icu persistence failed") from exc

@@ -2,13 +2,19 @@
 
 import argparse
 import json
+from datetime import date
 from pathlib import Path
 
-from endurance_coach.config import OllamaSettings, StorageSettings
+from endurance_coach.config import IntervalsSettings, OllamaSettings, StorageSettings
 from endurance_coach.ingestion import FitIngestionError
+from endurance_coach.integrations import IntervalsClient, IntervalsError
 from endurance_coach.metrics import summarize_training
 from endurance_coach.sample_data import synthetic_activities, write_synthetic_activities
-from endurance_coach.services import import_fit_archive
+from endurance_coach.services import (
+    IntervalsSyncError,
+    import_fit_archive,
+    sync_intervals_activities,
+)
 from endurance_coach.storage import StorageError, database_status, initialize_database
 
 
@@ -17,6 +23,13 @@ def _positive_int(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return parsed
+
+
+def _iso_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an ISO date (YYYY-MM-DD)") from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +77,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=1024,
         help="maximum decompressed FIT payload size (default: 1024)",
     )
+    sync_intervals = database_commands.add_parser(
+        "sync-intervals",
+        help="incrementally retrieve and store read-only Intervals.icu summaries",
+    )
+    sync_intervals.add_argument(
+        "--oldest",
+        type=_iso_date,
+        help="initial or explicit inclusive start date (YYYY-MM-DD)",
+    )
+    sync_intervals.add_argument(
+        "--newest",
+        type=_iso_date,
+        help="inclusive end date (defaults to today)",
+    )
     metrics = subparsers.add_parser("metrics", help="summarize the bundled synthetic rides")
     metrics.add_argument("--ftp", type=int, default=250)
     generate = subparsers.add_parser("generate-data", help="write deterministic sample rides")
@@ -102,12 +129,28 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
                 return 0 if summary.failed == 0 and summary.metadata_failed == 0 else 1
+            if args.database_command == "sync-intervals":
+                intervals_settings = IntervalsSettings.from_env()
+                summary = sync_intervals_activities(
+                    settings.database_path,
+                    IntervalsClient(intervals_settings),
+                    oldest=args.oldest,
+                    newest=args.newest,
+                )
+                print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
+                return 0
             status = (
                 initialize_database(settings.database_path)
                 if args.database_command == "init"
                 else database_status(settings.database_path)
             )
-        except (FitIngestionError, StorageError) as exc:
+        except (
+            FitIngestionError,
+            IntervalsError,
+            IntervalsSyncError,
+            StorageError,
+            ValueError,
+        ) as exc:
             print(json.dumps({"error": str(exc)}))
             return 2
         print(json.dumps(status.as_dict(), indent=2, sort_keys=True))

@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
+import endurance_coach.cli as cli
 from endurance_coach.cli import main
+from endurance_coach.integrations import IntervalsActivity
 from tests.fit_fixture import write_fit_fixture
 
 
@@ -96,3 +98,51 @@ def test_db_import_fit_requires_configured_archive(monkeypatch, capsys) -> None:
     assert main(["db", "import-fit"]) == 2
 
     assert json.loads(capsys.readouterr().out) == {"error": "archive_not_configured"}
+
+
+def test_db_sync_intervals_reports_aggregate_counts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    database = tmp_path / "private-athlete-database.sqlite3"
+    monkeypatch.setenv("ENDURANCE_COACH_DB_PATH", str(database))
+    monkeypatch.setenv("INTERVALS_ICU_API_KEY", "synthetic-secret")
+
+    class FakeClient:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def list_activities(self, _oldest, _newest):
+            return (
+                IntervalsActivity(
+                    external_id="i-synthetic-1",
+                    raw={
+                        "id": "i-synthetic-1",
+                        "type": "Ride",
+                        "start_date": "2026-11-01T08:00:00Z",
+                    },
+                ),
+            )
+
+    monkeypatch.setattr(cli, "IntervalsClient", FakeClient)
+
+    assert main(
+        [
+            "db",
+            "sync-intervals",
+            "--oldest",
+            "2026-11-01",
+            "--newest",
+            "2026-11-02",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "fetched": 1,
+        "inserted": 1,
+        "newest": "2026-11-02",
+        "oldest": "2026-11-01",
+        "updated": 0,
+    }
+    assert "synthetic-secret" not in output
+    assert "private-athlete" not in output

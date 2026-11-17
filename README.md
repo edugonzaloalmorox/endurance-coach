@@ -26,6 +26,7 @@ uv run endurance-coach db init
 uv run endurance-coach db status
 uv run endurance-coach db import-fit /path/to/archive --dry-run
 uv run endurance-coach db import-fit /path/to/archive
+uv run endurance-coach db sync-intervals --oldest 2026-01-01
 uv run endurance-coach metrics --ftp 250
 ```
 
@@ -41,6 +42,11 @@ one inside the archive), Strava-style rows are matched by the `Filename` column 
 name, description, and activity type without replacing FIT measurements. `--dry-run` parses inputs
 without changing the database. CLI output contains only aggregate counts or safe schema metadata,
 never configured paths or measurements.
+
+Set `INTERVALS_ICU_API_KEY` and optionally `INTERVALS_ICU_ATHLETE_ID` before the first read-only
+sync. The initial `db sync-intervals` requires `--oldest`; later runs resume with a seven-day
+overlap and atomically upsert summaries and advance the successful cursor. No provider data is
+written back.
 
 Regenerate the committed deterministic fixture with:
 
@@ -67,8 +73,8 @@ marker is removed. See [`docs/exercises.md`](docs/exercises.md) and
 The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runtime coaching agents,
 and autonomous workout-plan changes. Synthetic JSON remains the only coaching-workflow activity
 source. The SQLite foundation, historical FIT/FIT.GZ ingestion with complementary CSV metadata,
-and bounded read-only Intervals.icu activity retrieval are implemented. Incremental provider
-persistence and database-backed coaching remain planned work.
+and bounded read-only incremental Intervals.icu activity synchronization are implemented.
+Cross-source reconciliation and database-backed coaching remain planned work.
 
 Real training archives, generated databases, FIT/GPX files, and Parquet files are excluded from
 version control. Only explicitly approved synthetic fixtures under `tests/fixtures/` may opt back in

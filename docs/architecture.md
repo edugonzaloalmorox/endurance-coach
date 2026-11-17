@@ -17,8 +17,8 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
 
 Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optional Strava-style
 CSV rows adding descriptive metadata by archive-relative filename. Bounded Intervals.icu summary
-retrieval is implemented; normalization, incremental persistence, and database-backed coaching
-remain planned.
+retrieval, normalization, and incremental persistence are implemented; cross-source reconciliation
+and database-backed coaching remain planned.
 
 ## Components
 
@@ -37,18 +37,20 @@ remain planned.
   provider-neutral domain contracts.
 - `ingestion/csv_metadata.py` safely reads bounded archive-contained CSV metadata and indexes valid
   rows by their FIT filename without treating CSV summaries as sensor measurements.
-- `integrations/intervals.py` retrieves read-only activity summaries in bounded date windows and
-  retains the raw provider boundary for later normalization.
+- `integrations/intervals.py` retrieves and normalizes read-only activity summaries in bounded date
+  windows while preserving missing fields and source identity.
 - `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
   failure recording, and aggregate reporting without exposing archive paths or measurements.
+- `services/intervals_sync.py` applies overlap windows and advances sync state only in the same
+  transaction as a successful idempotent activity batch.
 - `config.py` loads local database, archive, Intervals.icu, and Ollama settings without performing
   I/O.
 - `skills.py` defines `SkillLoader`. Both methods are intentionally unimplemented.
 - `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
-- `cli.py` exposes safe scaffold operations plus `db init`, `db status`, and `db import-fit`. It has
-  no provider synchronization or coaching command yet.
+- `cli.py` exposes safe scaffold operations plus database initialization, historical import, and
+  read-only Intervals.icu synchronization. It has no coaching command yet.
 
 ## Persistence boundary
 

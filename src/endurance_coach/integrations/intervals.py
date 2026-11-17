@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
 from typing import Any, Protocol, Self
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from endurance_coach.config import IntervalsSettings
+from endurance_coach.domain import ImportedActivity
 
 
 class IntervalsError(RuntimeError):
@@ -26,6 +29,14 @@ class IntervalsActivity:
 
     external_id: str
     raw: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class NormalizedIntervalsActivity:
+    """Provider identity paired with a normalized summary for persistence."""
+
+    external_id: str
+    activity: ImportedActivity
 
 
 class _Response(Protocol):
@@ -138,3 +149,107 @@ class IntervalsClient:
     def _authorization_header(self) -> str:
         credentials = f"API_KEY:{self._settings.api_key.get_secret_value()}".encode()
         return "Basic " + base64.b64encode(credentials).decode("ascii")
+
+
+def normalize_intervals_activity(
+    source: IntervalsActivity,
+) -> NormalizedIntervalsActivity:
+    """Map one Intervals.icu summary to the provider-neutral activity contract.
+
+    Summary power is derived by Intervals.icu, so it is never labelled as a directly measured
+    value. Missing optional fields remain null.
+
+    Args:
+        source: Valid provider record and external identity.
+
+    Returns:
+        Provider identity and normalized summary.
+
+    Raises:
+        IntervalsError: If required fields or numeric measurements are invalid.
+    """
+    raw = source.raw
+    started_at = _utc_datetime(raw.get("start_date"))
+    activity_type = _text(raw.get("type")) or "unknown"
+    average_power = _number(raw, "average_watts", "icu_average_watts")
+    normalized_power = _number(
+        raw, "icu_weighted_avg_watts", "weighted_average_watts"
+    )
+    return NormalizedIntervalsActivity(
+        external_id=source.external_id,
+        activity=ImportedActivity(
+            activity_id=f"intervals:{source.external_id}",
+            activity_type=activity_type.lower().replace(" ", "_"),
+            started_at_utc=started_at,
+            records=(),
+            name=_text(raw.get("name")),
+            description=_text(raw.get("description")),
+            timezone_offset_minutes=_timezone_offset_minutes(raw, started_at),
+            elapsed_seconds=_number(raw, "elapsed_time"),
+            moving_seconds=_number(raw, "moving_time"),
+            distance_m=_number(raw, "distance"),
+            elevation_gain_m=_number(raw, "total_elevation_gain"),
+            average_power_w=average_power,
+            normalized_power_w=normalized_power,
+            average_heart_rate_bpm=_number(
+                raw, "average_heartrate", strictly_positive=True
+            ),
+            power_origin=(
+                "derived"
+                if average_power is not None or normalized_power is not None
+                else "unavailable"
+            ),
+            quality_status="partial",
+        ),
+    )
+
+
+def _utc_datetime(value: object) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise IntervalsError("Intervals.icu activity is missing a UTC start time")
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise IntervalsError("Intervals.icu activity has an invalid UTC start time") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _timezone_offset_minutes(
+    raw: Mapping[str, Any], started_at: datetime
+) -> int | None:
+    timezone_name = _text(raw.get("timezone"))
+    if timezone_name is None:
+        return None
+    try:
+        offset = started_at.astimezone(ZoneInfo(timezone_name)).utcoffset()
+    except ZoneInfoNotFoundError as exc:
+        raise IntervalsError("Intervals.icu activity has an invalid timezone") from exc
+    if offset is None:
+        raise IntervalsError("Intervals.icu activity has an invalid timezone")
+    return int(offset.total_seconds() // 60)
+
+
+def _number(
+    raw: Mapping[str, Any],
+    *names: str,
+    strictly_positive: bool = False,
+) -> float | None:
+    value = next((raw[name] for name in names if raw.get(name) is not None), None)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise IntervalsError(f"Intervals.icu activity has invalid {names[0]}")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0 or (strictly_positive and parsed <= 0):
+        raise IntervalsError(f"Intervals.icu activity has invalid {names[0]}")
+    return parsed
+
+
+def _text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise IntervalsError("Intervals.icu activity has invalid text")
+    return value.strip() or None

@@ -13,7 +13,12 @@ from urllib.request import Request
 import pytest
 
 from endurance_coach.config import IntervalsSettings
-from endurance_coach.integrations import IntervalsClient, IntervalsError
+from endurance_coach.integrations import (
+    IntervalsActivity,
+    IntervalsClient,
+    IntervalsError,
+    normalize_intervals_activity,
+)
 
 
 def _opener(
@@ -117,3 +122,55 @@ def test_settings_require_api_key_without_disclosing_it(
 
     with pytest.raises(ValueError, match="INTERVALS_ICU_API_KEY is required"):
         IntervalsSettings.from_env()
+
+
+def test_normalize_activity_preserves_units_nulls_and_derived_power() -> None:
+    normalized = normalize_intervals_activity(
+        IntervalsActivity(
+            external_id="i123",
+            raw={
+                "id": "i123",
+                "name": "Synthetic Ride",
+                "type": "Virtual Ride",
+                "start_date": "2026-11-01T08:00:00Z",
+                "timezone": "Europe/Madrid",
+                "moving_time": 3600,
+                "elapsed_time": 3700,
+                "distance": 30_000.5,
+                "total_elevation_gain": 450,
+                "icu_average_watts": 180,
+                "icu_weighted_avg_watts": 195,
+                "average_heartrate": None,
+            },
+        )
+    )
+
+    activity = normalized.activity
+    assert activity.activity_id == "intervals:i123"
+    assert activity.activity_type == "virtual_ride"
+    assert activity.started_at_utc.isoformat() == "2026-11-01T08:00:00+00:00"
+    assert activity.timezone_offset_minutes == 60
+    assert activity.moving_seconds == 3600
+    assert activity.elapsed_seconds == 3700
+    assert activity.distance_m == 30_000.5
+    assert activity.elevation_gain_m == 450
+    assert activity.average_power_w == 180
+    assert activity.normalized_power_w == 195
+    assert activity.average_heart_rate_bpm is None
+    assert activity.power_origin == "derived"
+    assert activity.records == ()
+
+
+def test_normalize_activity_rejects_invalid_measurements() -> None:
+    with pytest.raises(IntervalsError, match="invalid distance"):
+        normalize_intervals_activity(
+            IntervalsActivity(
+                external_id="i123",
+                raw={
+                    "id": "i123",
+                    "type": "Ride",
+                    "start_date": "2026-11-01T08:00:00Z",
+                    "distance": -1,
+                },
+            )
+        )
