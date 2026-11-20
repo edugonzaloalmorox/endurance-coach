@@ -45,7 +45,8 @@ and database-backed coaching remain planned.
   transaction as a successful idempotent activity batch.
 - `config.py` loads local database, archive, Intervals.icu, and Ollama settings without performing
   I/O.
-- `skills.py` defines `SkillLoader`. Both methods are intentionally unimplemented.
+- `skills.py` discovers validated metadata from immediate runtime-skill directories and explicitly
+  loads one selected instruction body while rejecting unsafe names and escaping paths.
 - `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.

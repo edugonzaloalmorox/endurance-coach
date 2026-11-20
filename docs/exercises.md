@@ -1,29 +1,11 @@
 # Deferred executable specifications
 
-Five tests marked `exercise` preserve unfinished product specifications. They remain collected with
+Two tests marked `exercise` preserve unfinished product specifications. They remain collected with
 their assertions and inputs unchanged and are temporarily marked `xfail(strict=True)`. Strict mode
 makes an unexpected pass fail the suite until the behavior is implemented and the marker is removed.
 
 Do not skip these tests, make their xfail markers non-strict, or weaken their assertions merely to
 obtain a pass.
-
-## Skill discovery — issue #15
-
-[`SkillLoader.discover()` implementation](https://github.com/edugonzaloalmorox/endurance-coach/issues/15)
-must return an empty list when the root does not exist, inspect sorted immediate child directories
-containing `SKILL.md`, parse YAML frontmatter, verify that the frontmatter `name` matches the
-directory name, and return `SkillMetadata` objects. Discovery must not expose the Markdown body.
-
-Owning test: `test_skill_discovery_returns_metadata_only`.
-
-## Explicit skill loading — issue #16
-
-[`SkillLoader.load_skill()` implementation](https://github.com/edugonzaloalmorox/endurance-coach/issues/16)
-must reject unsafe names before constructing a path, raise a clear `FileNotFoundError` for an unknown
-skill, parse the same frontmatter, and return `LoadedSkill` with the Markdown body in `instructions`.
-
-Owning tests: `test_skill_is_loaded_progressively_only_when_requested` and
-`test_missing_skill_has_a_clear_error`.
 
 ## Missing activity data — issue #18
 
