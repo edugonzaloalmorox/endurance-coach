@@ -68,3 +68,26 @@ def test_rejects_csv_outside_archive_and_missing_filename_column(tmp_path: Path)
     inside.write_text("Activity ID,Activity Name\n1,Ride\n", encoding="utf-8")
     with pytest.raises(FitIngestionError, match="metadata_missing_filename_column"):
         read_metadata_csv(inside, archive)
+
+
+def test_reads_spanish_strava_headers(tmp_path: Path) -> None:
+    csv_path = tmp_path / "activities.csv"
+    csv_path.write_text(
+        "ID de actividad,Nombre de la actividad,Tipo de actividad,"
+        "Descripción de la actividad,Nombre del archivo\n"
+        "101,Vuelta sintética,Ciclismo virtual,Sin datos personales,"
+        "activities/ride.fit.gz\n"
+        "102,Actividad manual,Ciclismo virtual,Sin archivo,\n"
+        "103,Otro formato,Ciclismo virtual,No es FIT,activities/ride.gpx\n",
+        encoding="utf-8",
+    )
+
+    catalog = read_metadata_csv(csv_path, tmp_path)
+
+    metadata = catalog.rows["activities/ride.fit.gz"]
+    assert catalog.invalid_rows == 0
+    assert len(catalog.rows) == 1
+    assert metadata.external_id == "101"
+    assert metadata.name == "Vuelta sintética"
+    assert metadata.activity_type == "ciclismo_virtual"
+    assert metadata.description == "Sin datos personales"

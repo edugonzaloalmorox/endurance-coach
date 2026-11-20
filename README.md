@@ -38,10 +38,11 @@ The database defaults to `data/endurance_coach.sqlite3`. Override it with
 `db import-fit`. The importer recursively reads FIT and FIT.GZ files without modifying them,
 deduplicates raw and decompressed content, records per-file failures, and writes each valid file in
 one SQLite transaction. When an archive-root `activities.csv` is present (or `--metadata-csv` names
-one inside the archive), Strava-style rows are matched by the `Filename` column and add descriptive
-name, description, and activity type without replacing FIT measurements. `--dry-run` parses inputs
-without changing the database. CLI output contains only aggregate counts or safe schema metadata,
-never configured paths or measurements.
+one inside the archive), English or Spanish Strava export rows are matched by their filename column
+and add descriptive name, description, and activity type without replacing FIT measurements. Manual
+activities and unsupported file formats in the CSV are ignored rather than reported as malformed
+FIT metadata. `--dry-run` parses inputs without changing the database. CLI output contains only
+aggregate counts or safe schema metadata, never configured paths or measurements.
 
 Set `INTERVALS_ICU_API_KEY` and optionally `INTERVALS_ICU_ATHLETE_ID` before the first read-only
 sync. The initial `db sync-intervals` requires `--oldest`; later runs resume with a seven-day

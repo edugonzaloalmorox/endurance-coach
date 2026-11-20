@@ -10,6 +10,13 @@ from endurance_coach.ingestion.fit import FitIngestionError
 
 _MAX_CSV_BYTES = 32 * 1024 * 1024
 _MAX_ROWS = 250_000
+_HEADERS = {
+    "external_id": ("Activity ID", "ID de actividad"),
+    "name": ("Activity Name", "Nombre de la actividad"),
+    "description": ("Activity Description", "Descripción de la actividad"),
+    "activity_type": ("Activity Type", "Tipo de actividad"),
+    "filename": ("Filename", "Nombre del archivo"),
+}
 
 
 @dataclass(frozen=True)
@@ -61,7 +68,7 @@ def read_metadata_csv(path: Path, archive_root: Path) -> MetadataCatalog:
     try:
         reader = csv.DictReader(text.splitlines(), strict=True)
         fieldnames = set(reader.fieldnames or ())
-        if "Filename" not in fieldnames:
+        if not fieldnames.intersection(_HEADERS["filename"]):
             raise FitIngestionError("metadata_missing_filename_column")
         rows: dict[str, HistoricalMetadata] = {}
         external_ids: set[str] = set()
@@ -69,8 +76,13 @@ def read_metadata_csv(path: Path, archive_root: Path) -> MetadataCatalog:
         for index, row in enumerate(reader, start=1):
             if index > _MAX_ROWS:
                 raise FitIngestionError("metadata_too_many_rows")
-            relative_path = _safe_relative_path(row.get("Filename"))
-            external_id = _optional(row.get("Activity ID"))
+            filename = (_first(row, "filename") or "").strip()
+            if not filename or not filename.lower().endswith((".fit", ".fit.gz")):
+                # A complete activity export can include manual activities and
+                # unsupported source formats. They are not malformed FIT metadata.
+                continue
+            relative_path = _safe_relative_path(filename)
+            external_id = _optional(_first(row, "external_id"))
             if (
                 relative_path is None
                 or relative_path in rows
@@ -83,13 +95,17 @@ def read_metadata_csv(path: Path, archive_root: Path) -> MetadataCatalog:
             rows[relative_path] = HistoricalMetadata(
                 fit_relative_path=relative_path,
                 external_id=external_id,
-                name=_optional(row.get("Activity Name")),
-                description=_optional(row.get("Activity Description")),
-                activity_type=_normalize_activity_type(row.get("Activity Type")),
+                name=_optional(_first(row, "name")),
+                description=_optional(_first(row, "description")),
+                activity_type=_normalize_activity_type(_first(row, "activity_type")),
             )
     except (csv.Error, TypeError) as exc:
         raise FitIngestionError("invalid_metadata_csv") from exc
     return MetadataCatalog(rows=rows, invalid_rows=invalid)
+
+
+def _first(row: dict[str, str | None], field: str) -> str | None:
+    return next((row.get(header) for header in _HEADERS[field] if row.get(header)), None)
 
 
 def _safe_relative_path(value: str | None) -> str | None:
