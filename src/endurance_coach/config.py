@@ -5,6 +5,45 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, SecretStr
 
+_MAX_DOTENV_BYTES = 64 * 1024
+
+
+def _dotenv_value(name: str) -> str | None:
+    """Read one exact key from a small local dotenv file without executing it."""
+    path = Path(".env")
+    try:
+        if not path.is_file() or path.stat().st_size > _MAX_DOTENV_BYTES:
+            return None
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line.removeprefix("export ").lstrip()
+            key, separator, raw_value = line.partition("=")
+            if separator and key.strip() == name:
+                value = raw_value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                    value = value[1:-1]
+                return value
+    except (OSError, UnicodeError):
+        return None
+    return None
+
+
+def _env_or_dotenv(name: str, *aliases: str) -> str:
+    """Resolve a setting with process environment taking precedence over dotenv."""
+    names = (name, *aliases)
+    for candidate in names:
+        value = os.getenv(candidate)
+        if value is not None:
+            return value.strip()
+    for candidate in names:
+        value = _dotenv_value(candidate)
+        if value is not None:
+            return value.strip()
+    return ""
+
 
 class OllamaSettings(BaseModel):
     """Configuration for the local Ollama model."""
@@ -57,11 +96,11 @@ class IntervalsSettings(BaseModel):
 
     @classmethod
     def from_env(cls) -> "IntervalsSettings":
-        """Load credentials without accessing the network or exposing the API key."""
-        api_key = os.getenv("INTERVALS_ICU_API_KEY", "").strip()
+        """Load credentials from the process or local dotenv without exposing them."""
+        api_key = _env_or_dotenv("INTERVALS_ICU_API_KEY", "INTERVALS_API_KEY")
         if not api_key:
             raise ValueError("INTERVALS_ICU_API_KEY is required")
         return cls(
-            athlete_id=os.getenv("INTERVALS_ICU_ATHLETE_ID", "0").strip() or "0",
+            athlete_id=_env_or_dotenv("INTERVALS_ICU_ATHLETE_ID") or "0",
             api_key=api_key,
         )

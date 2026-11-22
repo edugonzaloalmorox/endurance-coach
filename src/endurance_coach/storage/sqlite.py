@@ -179,6 +179,62 @@ class DatabaseStatus:
 
 
 @dataclass(frozen=True)
+class ActivityInspection:
+    """Bounded normalized activity details suitable for local inspection."""
+
+    activity_id: str
+    activity_type: str
+    name: str | None
+    started_at_utc: str
+    elapsed_seconds: float | None
+    moving_seconds: float | None
+    distance_m: float | None
+    elevation_gain_m: float | None
+    average_power_w: float | None
+    normalized_power_w: float | None
+    average_heart_rate_bpm: float | None
+    power_origin: str
+    quality_status: str
+    source_types: tuple[str, ...]
+    record_count: int
+
+    def as_dict(self) -> dict[str, object]:
+        """Return normalized fields without descriptions, tracks, or source paths."""
+        return {
+            "activity_id": self.activity_id,
+            "activity_type": self.activity_type,
+            "name": self.name,
+            "started_at_utc": self.started_at_utc,
+            "elapsed_seconds": self.elapsed_seconds,
+            "moving_seconds": self.moving_seconds,
+            "distance_m": self.distance_m,
+            "elevation_gain_m": self.elevation_gain_m,
+            "average_power_w": self.average_power_w,
+            "normalized_power_w": self.normalized_power_w,
+            "average_heart_rate_bpm": self.average_heart_rate_bpm,
+            "power_origin": self.power_origin,
+            "quality_status": self.quality_status,
+            "source_types": list(self.source_types),
+            "record_count": self.record_count,
+        }
+
+
+@dataclass(frozen=True)
+class DatabaseInspection:
+    """Schema status and a bounded set of recent normalized activities."""
+
+    status: DatabaseStatus
+    activities: tuple[ActivityInspection, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable local inspection result."""
+        return {
+            **self.status.as_dict(),
+            "activities": [item.as_dict() for item in self.activities],
+        }
+
+
+@dataclass(frozen=True)
 class FitWriteResult:
     """Outcome of one transactional FIT persistence attempt."""
 
@@ -281,6 +337,91 @@ def database_status(path: Path) -> DatabaseStatus:
     try:
         with _connect(path) as connection:
             return _status(connection)
+    except UnsupportedSchemaVersion:
+        raise
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("database inspection failed") from exc
+
+
+def inspect_database(path: Path, *, limit: int = 20) -> DatabaseInspection:
+    """Inspect recent normalized activities without changing the database.
+
+    Descriptions, source paths, raw records, and GPS coordinates are intentionally
+    excluded. Results are ordered newest first and bounded to at most 100 rows.
+
+    Args:
+        path: Local SQLite file path.
+        limit: Maximum number of recent activities to return, from 1 through 100.
+
+    Returns:
+        Safe schema status and recent normalized activity summaries.
+
+    Raises:
+        ValueError: If ``limit`` is outside the supported range.
+        StorageError: If an existing database cannot be inspected safely.
+    """
+    if not 1 <= limit <= 100:
+        raise ValueError("inspection limit must be between 1 and 100")
+    if not path.exists():
+        return DatabaseInspection(
+            status=DatabaseStatus(initialized=False, schema_version=0, table_counts={}),
+            activities=(),
+        )
+    try:
+        with _connect(path) as connection:
+            connection.execute("PRAGMA query_only = ON")
+            status = _status(connection)
+            if not status.initialized:
+                return DatabaseInspection(status=status, activities=())
+            rows = connection.execute(
+                """SELECT
+                       activity.id, activity.activity_type, activity.name,
+                       activity.started_at_utc, activity.elapsed_seconds,
+                       activity.moving_seconds, activity.distance_m,
+                       activity.elevation_gain_m, activity.average_power_w,
+                       activity.normalized_power_w, activity.average_heart_rate_bpm,
+                       activity.power_origin, activity.quality_status,
+                       COUNT(DISTINCT record.session_index || ':' || record.record_index)
+                   FROM activities AS activity
+                   LEFT JOIN activity_records AS record
+                       ON record.activity_id = activity.id
+                   GROUP BY activity.id
+                   ORDER BY activity.started_at_utc DESC, activity.id DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            activities = []
+            for row in rows:
+                source_types = tuple(
+                    source[0]
+                    for source in connection.execute(
+                        """SELECT DISTINCT source_type
+                           FROM activity_sources
+                           WHERE activity_id = ?
+                           ORDER BY source_type""",
+                        (row[0],),
+                    )
+                )
+                activities.append(
+                    ActivityInspection(
+                        activity_id=row[0],
+                        activity_type=row[1],
+                        name=row[2],
+                        started_at_utc=row[3],
+                        elapsed_seconds=row[4],
+                        moving_seconds=row[5],
+                        distance_m=row[6],
+                        elevation_gain_m=row[7],
+                        average_power_w=row[8],
+                        normalized_power_w=row[9],
+                        average_heart_rate_bpm=row[10],
+                        power_origin=row[11],
+                        quality_status=row[12],
+                        source_types=source_types,
+                        record_count=int(row[13]),
+                    )
+                )
+            return DatabaseInspection(status=status, activities=tuple(activities))
     except UnsupportedSchemaVersion:
         raise
     except (OSError, sqlite3.Error) as exc:

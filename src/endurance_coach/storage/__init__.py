@@ -2,6 +2,8 @@
 
 from endurance_coach.storage.sqlite import (
     CURRENT_SCHEMA_VERSION,
+    ActivityInspection,
+    DatabaseInspection,
     DatabaseStatus,
     FitWriteResult,
     IntervalsWriteResult,
@@ -10,6 +12,7 @@ from endurance_coach.storage.sqlite import (
     database_status,
     get_intervals_sync_state,
     initialize_database,
+    inspect_database,
     mark_intervals_sync_failed,
     mark_intervals_sync_running,
     record_fit_failure,
@@ -18,7 +21,9 @@ from endurance_coach.storage.sqlite import (
 )
 
 __all__ = [
+    "ActivityInspection",
     "CURRENT_SCHEMA_VERSION",
+    "DatabaseInspection",
     "DatabaseStatus",
     "FitWriteResult",
     "IntervalsWriteResult",
@@ -27,6 +32,7 @@ __all__ = [
     "database_status",
     "get_intervals_sync_state",
     "initialize_database",
+    "inspect_database",
     "mark_intervals_sync_failed",
     "mark_intervals_sync_running",
     "record_fit_failure",

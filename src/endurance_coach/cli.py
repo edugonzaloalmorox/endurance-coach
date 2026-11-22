@@ -15,7 +15,12 @@ from endurance_coach.services import (
     import_fit_archive,
     sync_intervals_activities,
 )
-from endurance_coach.storage import StorageError, database_status, initialize_database
+from endurance_coach.storage import (
+    StorageError,
+    database_status,
+    initialize_database,
+    inspect_database,
+)
 
 
 def _positive_int(value: str) -> int:
@@ -46,6 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
     database_commands = database.add_subparsers(dest="database_command", required=True)
     database_commands.add_parser("init", help="initialize or upgrade the local database")
     database_commands.add_parser("status", help="show safe schema and row-count status")
+    inspect = database_commands.add_parser(
+        "inspect", help="show recent normalized activities without GPS tracks"
+    )
+    inspect.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=20,
+        help="maximum recent activities to show, up to 100 (default: 20)",
+    )
     import_fit = database_commands.add_parser(
         "import-fit", help="import FIT and FIT.GZ activities from a local archive"
     )
@@ -138,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
                     newest=args.newest,
                 )
                 print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
+                return 0
+            if args.database_command == "inspect":
+                inspection = inspect_database(settings.database_path, limit=args.limit)
+                print(json.dumps(inspection.as_dict(), indent=2, sort_keys=True))
                 return 0
             status = (
                 initialize_database(settings.database_path)

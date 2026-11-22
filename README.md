@@ -24,6 +24,7 @@ cp .env.example .env  # optional; alternatively export the values in your shell
 uv run endurance-coach config
 uv run endurance-coach db init
 uv run endurance-coach db status
+uv run endurance-coach db inspect --limit 20
 uv run endurance-coach db import-fit /path/to/archive --dry-run
 uv run endurance-coach db import-fit /path/to/archive
 uv run endurance-coach db sync-intervals --oldest 2026-01-01
@@ -41,13 +42,18 @@ one SQLite transaction. When an archive-root `activities.csv` is present (or `--
 one inside the archive), English or Spanish Strava export rows are matched by their filename column
 and add descriptive name, description, and activity type without replacing FIT measurements. Manual
 activities and unsupported file formats in the CSV are ignored rather than reported as malformed
-FIT metadata. `--dry-run` parses inputs without changing the database. CLI output contains only
-aggregate counts or safe schema metadata, never configured paths or measurements.
+FIT metadata. `--dry-run` parses inputs without changing the database. Import and status output
+contains only aggregate counts or safe schema metadata, never configured paths or measurements.
+
+`db inspect` returns schema counts and recent normalized activity summaries, newest first. The
+optional `--limit` accepts 1 through 100 (default 20). Inspection is read-only and omits
+descriptions, source paths, raw records, and GPS coordinates.
 
 Set `INTERVALS_ICU_API_KEY` and optionally `INTERVALS_ICU_ATHLETE_ID` before the first read-only
-sync. The initial `db sync-intervals` requires `--oldest`; later runs resume with a seven-day
-overlap and atomically upsert summaries and advance the successful cursor. No provider data is
-written back.
+sync. They may be exported or stored in the repository-local ignored `.env`; process variables take
+precedence. `INTERVALS_API_KEY` is also accepted as a compatibility alias. The initial
+`db sync-intervals` requires `--oldest`; later runs resume with a seven-day overlap and atomically
+upsert summaries and advance the successful cursor. No provider data is written back.
 
 Regenerate the committed deterministic fixture with:
 

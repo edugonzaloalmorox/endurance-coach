@@ -7,6 +7,7 @@ import io
 import json
 from collections.abc import Callable
 from datetime import date
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -116,12 +117,41 @@ def test_list_activities_rejects_reversed_range_before_network_access() -> None:
 
 
 def test_settings_require_api_key_without_disclosing_it(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("INTERVALS_ICU_API_KEY", raising=False)
+    monkeypatch.delenv("INTERVALS_API_KEY", raising=False)
 
     with pytest.raises(ValueError, match="INTERVALS_ICU_API_KEY is required"):
         IntervalsSettings.from_env()
+
+
+def test_settings_load_dotenv_alias_with_environment_precedence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("INTERVALS_ICU_API_KEY", raising=False)
+    monkeypatch.delenv("INTERVALS_API_KEY", raising=False)
+    monkeypatch.delenv("INTERVALS_ICU_ATHLETE_ID", raising=False)
+    (tmp_path / ".env").write_text(
+        "INTERVALS_API_KEY='synthetic-dotenv-secret'\n"
+        "INTERVALS_ICU_ATHLETE_ID=i123\n",
+        encoding="utf-8",
+    )
+
+    dotenv_settings = IntervalsSettings.from_env()
+
+    assert dotenv_settings.api_key.get_secret_value() == "synthetic-dotenv-secret"
+    assert dotenv_settings.athlete_id == "i123"
+
+    monkeypatch.setenv("INTERVALS_ICU_API_KEY", "synthetic-environment-secret")
+    monkeypatch.setenv("INTERVALS_ICU_ATHLETE_ID", "i456")
+
+    environment_settings = IntervalsSettings.from_env()
+
+    assert environment_settings.api_key.get_secret_value() == "synthetic-environment-secret"
+    assert environment_settings.athlete_id == "i456"
 
 
 def test_normalize_activity_preserves_units_nulls_and_derived_power() -> None:

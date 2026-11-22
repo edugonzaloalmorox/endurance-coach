@@ -29,9 +29,9 @@ and database-backed coaching remain planned.
 - `sample_data.py` creates ten rides spanning 14 calendar days. The same records are committed in
   `data/synthetic_activities.json` for inspection and repeatable tests.
 - `storage/sqlite.py` owns the versioned schema, transactional initialization, foreign-key and data
-  constraints, per-file import transactions, idempotent source hashes, and privacy-safe status
-  inspection. It uses the Python standard library `sqlite3` module and `PRAGMA user_version`; no ORM
-  or migration framework is present.
+  constraints, per-file import transactions, idempotent source hashes, and bounded read-only
+  inspection. It uses the Python standard library `sqlite3` module and `PRAGMA user_version`; no
+  ORM or migration framework is present.
 - `ingestion/fit.py` discovers archive-contained FIT/FIT.GZ inputs, bounds decompression, verifies
   FIT structure and CRCs with `fitdecode`, and normalizes summaries and original sensor samples into
   provider-neutral domain contracts.
@@ -43,15 +43,17 @@ and database-backed coaching remain planned.
   failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `services/intervals_sync.py` applies overlap windows and advances sync state only in the same
   transaction as a successful idempotent activity batch.
-- `config.py` loads local database, archive, Intervals.icu, and Ollama settings without performing
-  I/O.
+- `config.py` loads local database, archive, Intervals.icu, and Ollama settings. Intervals
+  credentials may come from process variables or a small repository-local `.env` parsed as data,
+  never executed; loading configuration performs no network I/O.
 - `skills.py` discovers validated metadata from immediate runtime-skill directories and explicitly
   loads one selected instruction body while rejecting unsafe names and escaping paths.
 - `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
-- `cli.py` exposes safe scaffold operations plus database initialization, historical import, and
-  read-only Intervals.icu synchronization. It has no coaching command yet.
+- `cli.py` exposes safe scaffold operations plus database initialization, bounded activity
+  inspection, historical import, and read-only Intervals.icu synchronization. It has no coaching
+  command yet.
 
 ## Persistence boundary
 
@@ -66,8 +68,10 @@ The schema distinguishes measured, estimated, derived, and unavailable metric or
 dates on athlete profiles support later selection of historically valid FTP and weight. Database
 initialization is idempotent and rejects schema versions newer than the application supports.
 
-The CLI reports only schema version and row counts. Configured paths, measurements, GPS coordinates,
-and credentials are not included. Real archives and generated analytical files are ignored by Git;
+The status CLI reports only schema version and row counts. The bounded inspection CLI adds recent
+normalized summaries and source types but excludes descriptions, source paths, raw records, and GPS
+coordinates. Configured paths and credentials are never included. Real archives and generated
+analytical files are ignored by Git;
 approved synthetic test fixtures are the only permitted format-specific exceptions.
 
 ## Boundaries
