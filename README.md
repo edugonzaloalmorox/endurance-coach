@@ -28,6 +28,7 @@ uv run endurance-coach db inspect --limit 20
 uv run endurance-coach db import-fit /path/to/archive --dry-run
 uv run endurance-coach db import-fit /path/to/archive
 uv run endurance-coach db sync-intervals --oldest 2026-01-01
+make update-db
 uv run endurance-coach metrics --ftp 250
 ```
 
@@ -54,6 +55,11 @@ sync. They may be exported or stored in the repository-local ignored `.env`; pro
 precedence. `INTERVALS_API_KEY` is also accepted as a compatibility alias. The initial
 `db sync-intervals` requires `--oldest`; later runs resume with a seven-day overlap and atomically
 upsert summaries and advance the successful cursor. No provider data is written back.
+
+Run `make update-db` at the start of each fresh local session to update the database through today.
+For a brand-new database, bootstrap it once with
+`./scripts/update_database.sh --oldest YYYY-MM-DD`; subsequent runs need no arguments. A failed
+provider request exits nonzero and does not advance the last successful sync cursor.
 
 Regenerate the committed deterministic fixture with:
 
