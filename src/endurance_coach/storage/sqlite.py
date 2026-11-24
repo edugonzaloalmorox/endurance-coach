@@ -13,6 +13,7 @@ from endurance_coach.domain import (
     ImportedActivity,
     select_activity_match,
 )
+from endurance_coach.domain.models import ActivitySource, TrainingActivity
 from endurance_coach.ingestion.csv_metadata import HistoricalMetadata
 from endurance_coach.ingestion.fit import FitArtifact
 from endurance_coach.integrations import NormalizedIntervalsActivity
@@ -454,6 +455,118 @@ def inspect_database(path: Path, *, limit: int = 20) -> DatabaseInspection:
         raise
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("database inspection failed") from exc
+
+
+def load_recent_training_activities(
+    path: Path, *, limit: int = 50
+) -> tuple[TrainingActivity, ...]:
+    """Load bounded recent cycling summaries for local coaching.
+
+    This read-only boundary deliberately excludes descriptions, raw sensor records,
+    source paths, and GPS coordinates. Missing summary measurements remain null, and
+    no intensity or perceived-exertion value is inferred from unrelated fields.
+
+    Args:
+        path: Local SQLite file path.
+        limit: Maximum number of recent cycling activities, from 1 through 500.
+
+    Returns:
+        Recent activities ordered chronologically for deterministic analysis.
+
+    Raises:
+        ValueError: If ``limit`` is outside the supported range.
+        StorageError: If the database is unavailable, uninitialized, or unreadable.
+    """
+    if not 1 <= limit <= 500:
+        raise ValueError("training activity limit must be between 1 and 500")
+    if not path.exists():
+        raise StorageError("training database is not initialized")
+    try:
+        with _connect(path) as connection:
+            connection.execute("PRAGMA query_only = ON")
+            status = _status(connection)
+            if not status.initialized:
+                raise StorageError("training database is not initialized")
+            rows = connection.execute(
+                """SELECT
+                       activity.id, activity.activity_type, activity.name,
+                       activity.started_at_utc, activity.elapsed_seconds,
+                       activity.moving_seconds, activity.distance_m,
+                       activity.elevation_gain_m, activity.average_power_w,
+                       activity.normalized_power_w, activity.average_heart_rate_bpm,
+                       source.source_type, source.external_id, activity.power_origin
+                   FROM activities AS activity
+                   JOIN activity_sources AS source ON source.id = (
+                       SELECT candidate.id
+                       FROM activity_sources AS candidate
+                       WHERE candidate.activity_id = activity.id
+                         AND candidate.parse_status IN ('imported', 'duplicate')
+                       ORDER BY CASE candidate.source_type
+                           WHEN 'intervals' THEN 0
+                           WHEN 'fit_gz' THEN 1
+                           WHEN 'fit' THEN 2
+                           ELSE 3
+                       END, candidate.id
+                       LIMIT 1
+                   )
+                   WHERE LOWER(activity.activity_type) IN (
+                       'cycling', 'ride', 'virtualride', 'virtual_ride',
+                       'mountainbikeride', 'mountain_bike_ride',
+                       'gravelride', 'gravel_ride', 'ebikeride', 'e_bike_ride',
+                       'handcycle', 'bicicleta', 'bicicleta virtual'
+                   )
+                     AND CASE
+                         WHEN activity.moving_seconds > 0 THEN activity.moving_seconds
+                         ELSE activity.elapsed_seconds
+                     END > 0
+                   ORDER BY activity.started_at_utc DESC, activity.id DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            activities = tuple(_training_activity_from_row(row) for row in reversed(rows))
+            if not activities:
+                raise StorageError("training database contains no usable cycling activities")
+            return activities
+    except (StorageError, UnsupportedSchemaVersion):
+        raise
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise StorageError("training activity loading failed") from exc
+
+
+def _training_activity_from_row(row: tuple[object, ...]) -> TrainingActivity:
+    """Map one private SQLite result row to the bounded coaching contract."""
+    source_type = str(row[11])
+    source = {
+        "intervals": ActivitySource.INTERVALS_ICU,
+        "fit": ActivitySource.FIT,
+        "fit_gz": ActivitySource.FIT_GZ,
+        "strava_csv": ActivitySource.STRAVA_CSV,
+    }[source_type]
+    duration_seconds = row[5] if row[5] is not None and row[5] > 0 else row[4]
+    power_available = row[13] != "unavailable"
+    return TrainingActivity(
+        activity_id=str(row[0]),
+        source=source,
+        source_activity_id=str(row[12] or row[0]),
+        started_at=datetime.fromisoformat(str(row[3]).replace("Z", "+00:00")),
+        title=str(row[2] or "Cycling activity"),
+        ride_kind=None,
+        duration_minutes=max(1, round(float(duration_seconds) / 60)),
+        distance_km=None if row[6] is None else round(float(row[6]) / 1_000, 3),
+        elevation_gain_m=None if row[7] is None else round(float(row[7])),
+        average_power_w=(
+            None
+            if row[8] is None or not power_available or float(row[8]) <= 0
+            else round(float(row[8]))
+        ),
+        normalized_power_w=(
+            None
+            if row[9] is None or not power_available or float(row[9]) <= 0
+            else round(float(row[9]))
+        ),
+        average_heart_rate_bpm=None if row[10] is None else round(float(row[10])),
+        perceived_exertion=None,
+    )
 
 
 def store_fit_artifact(

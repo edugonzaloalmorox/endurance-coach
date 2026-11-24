@@ -272,6 +272,21 @@ def test_training_activity_preserves_missing_optional_measurements():
     assert activity.average_heart_rate_bpm is None
 
 
+def test_training_activity_preserves_unavailable_source_intensity_fields():
+    payload = valid_activity()
+    payload["ride_kind"] = None
+    payload["distance_km"] = None
+    payload["elevation_gain_m"] = None
+    payload["perceived_exertion"] = None
+
+    activity = TrainingActivity.model_validate(payload)
+
+    assert activity.ride_kind is None
+    assert activity.distance_km is None
+    assert activity.elevation_gain_m is None
+    assert activity.perceived_exertion is None
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

@@ -31,6 +31,9 @@ class ActivitySource(StrEnum):
 
     SYNTHETIC = "synthetic"
     INTERVALS_ICU = "intervals_icu"
+    FIT = "fit"
+    FIT_GZ = "fit_gz"
+    STRAVA_CSV = "strava_csv"
     COROS = "coros"
     MANUAL = "manual"
 
@@ -46,10 +49,23 @@ class TrainingActivity(StrictModel):
     )
     started_at: datetime = Field(description="Timezone-aware activity start date and time.")
     title: str = Field(min_length=1, description="Human-readable activity title.")
-    ride_kind: RideKind
-    duration_minutes: int = Field(gt=0, le=1_440, description="Elapsed duration in minutes.")
-    distance_km: float = Field(gt=0, description="Distance in kilometres.")
-    elevation_gain_m: int = Field(ge=0, description="Accumulated elevation gain in metres.")
+    ride_kind: RideKind | None = Field(
+        default=None,
+        description=(
+            "Known training intensity category, or null when the source does not supply it."
+        ),
+    )
+    duration_minutes: int = Field(gt=0, le=10_080, description="Activity duration in minutes.")
+    distance_km: float | None = Field(
+        default=None,
+        ge=0,
+        description="Distance in kilometres, or null when unavailable.",
+    )
+    elevation_gain_m: int | None = Field(
+        default=None,
+        ge=0,
+        description="Accumulated elevation gain in metres, or null when unavailable.",
+    )
     average_power_w: int | None = Field(
         default=None,
         gt=0,
@@ -66,10 +82,11 @@ class TrainingActivity(StrictModel):
         le=230,
         description="Average heart rate in beats per minute, or null when unavailable.",
     )
-    perceived_exertion: int = Field(
+    perceived_exertion: int | None = Field(
+        default=None,
         ge=1,
         le=10,
-        description="Subjective session intensity on a 1–10 scale.",
+        description="Subjective session intensity on a 1–10 scale, or null when unavailable.",
     )
 
     @model_validator(mode="after")
@@ -77,12 +94,6 @@ class TrainingActivity(StrictModel):
         """Require an unambiguous start time and internally consistent power."""
         if self.started_at.tzinfo is None or self.started_at.utcoffset() is None:
             raise ValueError("started_at must include a timezone offset")
-        if (
-            self.average_power_w is not None
-            and self.normalized_power_w is not None
-            and self.normalized_power_w < self.average_power_w
-        ):
-            raise ValueError("normalized_power_w must be at least average_power_w")
         return self
 
 

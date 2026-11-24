@@ -13,8 +13,9 @@ safety guidance.
 
 ## Setup
 
-Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/). A local
-[Ollama](https://ollama.com/) server is optional and is not contacted by the setup or test commands.
+Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/). A running local
+[Ollama](https://ollama.com/) server is required only for `ask`; setup and automated tests do not
+contact it.
 
 ```bash
 git clone https://github.com/edugonzaloalmorox/endurance-coach.git
@@ -29,11 +30,22 @@ uv run endurance-coach db import-fit /path/to/archive --dry-run
 uv run endurance-coach db import-fit /path/to/archive
 uv run endurance-coach db sync-intervals --oldest 2026-01-01
 make update-db
+uv run endurance-coach ask "Based on my last workouts, what should I focus next"
 uv run endurance-coach metrics --ftp 250
 ```
 
 The default local model configuration is `qwen3:8b` at `http://localhost:11434`. Pull or select a
-model only when working on functionality that exercises the Ollama agent loop.
+model only when working on functionality that exercises the Ollama agent loop. The coach requests a
+16,384-token context window so recent activity evidence, skill instructions, and the structured
+recommendation contract are not truncated; override it with `OLLAMA_NUM_CTX` when the selected
+model or available memory requires a different bounded value. Each model response is capped at
+1,200 tokens; override the bound with `OLLAMA_NUM_PREDICT`.
+
+`ask` reads up to 50 recent cycling summaries from the local database, computes metrics in Python,
+loads the coaching skill on demand, and returns a validated workout recommendation as JSON. Use
+`--limit` to request a smaller history. Missing power, distance, elevation, intensity category, and
+perceived exertion remain unavailable rather than being inferred. The command sends data only to
+the configured local Ollama endpoint and never changes the database or a workout plan.
 
 The database defaults to `data/endurance_coach.sqlite3`. Override it with
 `ENDURANCE_COACH_DB_PATH`. Set `ENDURANCE_COACH_ARCHIVE_PATH` or pass an archive path to
@@ -89,10 +101,9 @@ and bounded safe failures. See [`docs/exercises.md`](docs/exercises.md) and
 ## Scope and safety
 
 The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runtime coaching agents,
-and autonomous workout-plan changes. Synthetic JSON remains the only coaching-workflow activity
-source. The SQLite foundation, historical FIT/FIT.GZ ingestion with complementary CSV metadata,
-and bounded read-only incremental Intervals.icu activity synchronization are implemented.
-COROS supplementation and database-backed coaching remain planned work.
+COROS supplementation, and autonomous workout-plan changes. Historical FIT/FIT.GZ and read-only
+Intervals.icu summaries in SQLite are the coaching workflow's activity source; deterministic
+synthetic JSON remains available for tests and examples.
 
 Real training archives, generated databases, FIT/GPX files, and Parquet files are excluded from
 version control. Only explicitly approved synthetic fixtures under `tests/fixtures/` may opt back in

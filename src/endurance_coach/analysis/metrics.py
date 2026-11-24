@@ -21,10 +21,13 @@ class TrainingSummary(BaseModel):
     end_date: date
     activity_count: int = Field(gt=0)
     total_duration_minutes: int = Field(gt=0)
-    total_distance_km: float = Field(gt=0)
+    total_distance_km: float = Field(ge=0)
     total_elevation_gain_m: int = Field(ge=0)
     total_tss: float
     activities_missing_power: int = Field(ge=0)
+    activities_missing_distance: int = Field(ge=0)
+    activities_missing_elevation: int = Field(ge=0)
+    activities_missing_perceived_exertion: int = Field(ge=0)
 
 
 def intensity_factor(activity: TrainingActivity, ftp_watts: int) -> float | None:
@@ -58,8 +61,22 @@ def summarize_training(activities: Iterable[TrainingActivity], ftp_watts: int) -
         end_date=max(dates),
         activity_count=len(items),
         total_duration_minutes=sum(activity.duration_minutes for activity in items),
-        total_distance_km=round(sum(activity.distance_km for activity in items), 1),
-        total_elevation_gain_m=sum(activity.elevation_gain_m for activity in items),
+        total_distance_km=round(
+            sum(activity.distance_km for activity in items if activity.distance_km is not None),
+            1,
+        ),
+        total_elevation_gain_m=sum(
+            activity.elevation_gain_m
+            for activity in items
+            if activity.elevation_gain_m is not None
+        ),
         total_tss=round(sum(score for score in scores if score is not None), 1),
         activities_missing_power=sum(score is None for score in scores),
+        activities_missing_distance=sum(activity.distance_km is None for activity in items),
+        activities_missing_elevation=sum(
+            activity.elevation_gain_m is None for activity in items
+        ),
+        activities_missing_perceived_exertion=sum(
+            activity.perceived_exertion is None for activity in items
+        ),
     )

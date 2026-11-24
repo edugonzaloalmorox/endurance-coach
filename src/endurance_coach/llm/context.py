@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Sequence
+from datetime import date
 from typing import Any
 
 from pydantic import ValidationError
@@ -51,15 +52,19 @@ def build_initial_messages(
     summary: TrainingSummary,
     settings: OllamaSettings,
     skill_loader: SkillLoader,
+    current_date: date | None = None,
 ) -> list[dict[str, Any]]:
     """Build concise evidence context without loading skill instructions."""
+    effective_date = current_date or summary.end_date
+    if effective_date < summary.end_date:
+        raise ValueError("current date cannot precede the latest activity")
     skill_metadata = [skill.model_dump(mode="json") for skill in skill_loader.discover()]
     activity_context = [
         {
             "date": activity.started_at.date().isoformat(),
             "source": activity.source.value,
             "title": activity.title,
-            "ride_kind": activity.ride_kind.value,
+            "ride_kind": activity.ride_kind.value if activity.ride_kind is not None else None,
             "duration_minutes": activity.duration_minutes,
             "distance_km": activity.distance_km,
             "elevation_gain_m": activity.elevation_gain_m,
@@ -71,7 +76,9 @@ def build_initial_messages(
         for activity in activities
     ]
     context = {
-        "context_as_of": summary.end_date.isoformat(),
+        "context_as_of": effective_date.isoformat(),
+        "training_data_through": summary.end_date.isoformat(),
+        "days_since_last_activity": (effective_date - summary.end_date).days,
         "athlete_request": request,
         "metric_inputs": {"ftp_watts": settings.ftp_watts},
         "deterministic_training_summary": summary.model_dump(mode="json"),

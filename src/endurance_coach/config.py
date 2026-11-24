@@ -54,6 +54,8 @@ class OllamaSettings(BaseModel):
     ftp_watts: int = Field(default=250, gt=0, le=1_000)
     max_steps: int = Field(default=4, ge=1, le=20)
     max_context_activities: int = Field(default=50, ge=1, le=500)
+    context_length: int = Field(default=16_384, ge=2_048, le=131_072)
+    max_output_tokens: int = Field(default=1_200, ge=128, le=4_096)
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":
@@ -61,6 +63,8 @@ class OllamaSettings(BaseModel):
         return cls(
             host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+            context_length=int(os.getenv("OLLAMA_NUM_CTX", "16384")),
+            max_output_tokens=int(os.getenv("OLLAMA_NUM_PREDICT", "1200")),
         )
 
 

@@ -5,21 +5,24 @@ import json
 from datetime import date
 from pathlib import Path
 
-from endurance_coach.analysis import summarize_training
+from endurance_coach.analysis import MissingTrainingDataError, summarize_training
 from endurance_coach.config import IntervalsSettings, OllamaSettings, StorageSettings
 from endurance_coach.fixtures import synthetic_activities, write_synthetic_activities
 from endurance_coach.ingestion import FitIngestionError
 from endurance_coach.integrations import IntervalsClient, IntervalsError
+from endurance_coach.llm import AgentRuntime, AgentRuntimeError
 from endurance_coach.services import (
     IntervalsSyncError,
     import_fit_archive,
     sync_intervals_activities,
 )
+from endurance_coach.skills import SkillLoader
 from endurance_coach.storage import (
     StorageError,
     database_status,
     initialize_database,
     inspect_database,
+    load_recent_training_activities,
 )
 
 
@@ -47,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("config", help="show the resolved local-model configuration")
+    ask = subparsers.add_parser(
+        "ask", help="answer a coaching question from recent local training data"
+    )
+    ask.add_argument("question", help="coaching question for the local model")
+    ask.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=50,
+        help="maximum recent cycling activities to analyze, up to 500 (default: 50)",
+    )
     database = subparsers.add_parser("db", help="manage the local training database")
     database_commands = database.add_subparsers(dest="database_command", required=True)
     database_commands.add_parser("init", help="initialize or upgrade the local database")
@@ -126,6 +139,29 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "config":
         print(OllamaSettings.from_env().model_dump_json(indent=2))
+    elif args.command == "ask":
+        storage_settings = StorageSettings.from_env()
+        ollama_settings = OllamaSettings.from_env()
+        try:
+            if args.limit > 500:
+                raise ValueError("training activity limit must be between 1 and 500")
+            activities = load_recent_training_activities(
+                storage_settings.database_path,
+                limit=min(args.limit, ollama_settings.max_context_activities),
+            )
+            recommendation = AgentRuntime(
+                settings=ollama_settings,
+                skill_loader=SkillLoader(Path("coach_skills")),
+            ).run(args.question, activities, current_date=date.today())
+        except (
+            AgentRuntimeError,
+            MissingTrainingDataError,
+            StorageError,
+            ValueError,
+        ) as exc:
+            print(json.dumps({"error": str(exc)}))
+            return 2
+        print(recommendation.model_dump_json(indent=2))
     elif args.command == "db":
         settings = StorageSettings.from_env()
         try:

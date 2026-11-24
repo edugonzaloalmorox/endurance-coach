@@ -5,11 +5,9 @@ cycling arithmetic, SQLite provides local persistence, and incremental product w
 historical ingestion and Agent Skills to Ollama.
 
 ```text
-synthetic JSON -> TrainingActivity -> deterministic metrics
-                                      |
-                                      +-> SQLite schema
-                                      |
-user request -> AgentRuntime ---------+-> WorkoutRecommendation
+FIT/FIT.GZ + Intervals.icu -> SQLite -> TrainingActivity -> deterministic metrics
+                                                               |
+user request -> AgentRuntime ----------------------------------+-> WorkoutRecommendation
                     |
                     +-> SkillLoader -> coach_skills/*/SKILL.md
                     +-> local Ollama model
@@ -18,8 +16,8 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
 Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optional Strava-style
 CSV rows adding descriptive metadata by archive-relative filename. Bounded Intervals.icu summary
 retrieval, normalization, incremental persistence, and conservative reconciliation with historical
-FIT/Strava activities are implemented; COROS supplementation and database-backed coaching remain
-planned.
+FIT/Strava activities are implemented. Recent persisted cycling summaries feed the local coaching
+runtime; COROS supplementation remains planned.
 
 ## Components
 
@@ -30,9 +28,10 @@ planned.
 - `fixtures/synthetic.py` creates ten rides spanning 14 calendar days. The same records are
   committed in `data/synthetic_activities.json` for inspection and repeatable tests.
 - `storage/sqlite.py` owns the versioned schema, transactional initialization, foreign-key and data
-  constraints, per-file import transactions, idempotent source hashes, and bounded read-only
-  inspection. It uses the Python standard library `sqlite3` module and `PRAGMA user_version`; no
-  ORM or migration framework is present.
+  constraints, per-file import transactions, idempotent source hashes, bounded read-only
+  inspection, and the privacy-limited recent-activity query used by coaching. It uses the Python
+  standard library `sqlite3` module and `PRAGMA user_version`; no ORM or migration framework is
+  present.
 - `ingestion/fit.py` discovers archive-contained FIT/FIT.GZ inputs, bounds decompression, verifies
   FIT structure and CRCs with `fitdecode`, and normalizes summaries and original sensor samples into
   provider-neutral domain contracts.
@@ -57,9 +56,8 @@ planned.
   safely reportable failure boundary.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
-- `cli.py` exposes safe scaffold operations plus database initialization, bounded activity
-  inspection, historical import, and read-only Intervals.icu synchronization. It has no coaching
-  command yet.
+- `cli.py` exposes the database operations and `ask`, which passes bounded recent local activity
+  summaries to `AgentRuntime` and prints only a validated recommendation or safe error.
 
 ## Persistence boundary
 
@@ -87,13 +85,14 @@ return metadata. `load_skill()` is the only operation that should expose Markdow
 
 `AgentRuntime.run()` owns conversation messages and bounded tool-call iteration. It exposes one
 narrow `load_skill` tool, places returned instructions into the conversation only after activation,
-stops on a final answer, parses JSON, and validates it with `WorkoutRecommendation`. Raw missing
+stops on a final answer, parses JSON, and validates it with `WorkoutRecommendation`. One invalid
+structured response receives bounded correction feedback before the remaining step limit. Raw missing
 measurements remain `null`, deterministic summary metrics and their configured FTP input come from
 Python, and model thinking is neither requested nor copied into message history. It never silently
 invents activities or power.
 
 No networking occurs in metrics, model validation, skill loading, or sample-data generation. Ollama
-is the sole future network boundary and is expected to run locally.
+is the sole model network boundary and is expected to run locally.
 
 ## Development boundary
 

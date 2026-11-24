@@ -108,6 +108,8 @@ def test_runtime_executes_skill_tool_call_and_validates_final_output(activities)
     context = json.loads(first_messages[1]["content"])
     assert all("instructions" not in skill for skill in context["available_skills"])
     assert context["context_as_of"] == "2026-11-03"
+    assert context["training_data_through"] == "2026-11-03"
+    assert context["days_since_last_activity"] == 0
     assert context["available_skills"] == [
         {
             "name": "plan-workout",
@@ -207,11 +209,6 @@ def test_runtime_bounds_activity_context(activities):
             AgentProtocolError,
             "malformed tool call",
         ),
-        (
-            {"message": {"role": "assistant", "content": "not-json"}},
-            AgentProtocolError,
-            "invalid workout recommendation",
-        ),
         (final_response(), AgentProtocolError, "unloaded source skill"),
     ],
 )
@@ -230,6 +227,34 @@ def test_runtime_reports_client_error_without_exposing_client_message(activities
     assert "ConnectionError" in str(error.value)
     assert "secret-token" not in str(error.value)
     assert error.value.__cause__ is None
+
+
+def test_runtime_retries_invalid_recommendation_with_bounded_feedback(activities):
+    client = ScriptedOllamaClient(
+        tool_call(),
+        {"message": {"role": "assistant", "content": "not-json"}},
+        final_response(),
+    )
+
+    result = make_runtime(client, max_steps=3).run(
+        "Based on my last workouts, what should I focus next", activities
+    )
+
+    assert result.source_skill == "plan-workout"
+    assert len(client.requests) == 3
+    feedback = client.requests[2]["messages"][-1]
+    assert feedback["role"] == "user"
+    assert "did not match" in feedback["content"]
+    assert "not-json" not in feedback["content"]
+
+
+def test_runtime_rejects_invalid_recommendation_at_step_limit(activities):
+    client = ScriptedOllamaClient(
+        {"message": {"role": "assistant", "content": "not-json"}}
+    )
+
+    with pytest.raises(AgentProtocolError, match="invalid workout recommendation"):
+        make_runtime(client, max_steps=1).run("Plan tomorrow", activities)
 
 
 def test_runtime_stops_at_configured_step_limit(activities):

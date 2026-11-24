@@ -15,9 +15,49 @@ from endurance_coach.storage.sqlite import (
     UnsupportedSchemaVersion,
     database_status,
     initialize_database,
+    load_recent_training_activities,
     store_fit_artifact,
 )
 from tests.fit_fixture import write_fit_fixture
+
+
+def test_load_recent_training_activities_maps_private_storage_without_inference(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "coach.sqlite3"
+    initialize_database(database)
+    with sqlite3.connect(database) as connection:
+        for activity_id, activity_type, started_at, power_origin in (
+            ("old-bike", "bicicleta", "2026-11-01T08:00:00+00:00", "measured"),
+            ("new-bike", "ride", "2026-11-03T08:00:00+00:00", "unavailable"),
+            ("run", "carrera", "2026-11-04T08:00:00+00:00", "unavailable"),
+        ):
+            connection.execute(
+                """INSERT INTO activities (
+                       id, activity_type, name, description, started_at_utc,
+                       moving_seconds, distance_m, elevation_gain_m,
+                       average_power_w, normalized_power_w, power_origin,
+                       quality_status, created_at, updated_at
+                   ) VALUES (?, ?, 'Synthetic activity', 'private notes', ?,
+                             3600, NULL, NULL, 0, 0, ?, 'partial', 'now', 'now')""",
+                (activity_id, activity_type, started_at, power_origin),
+            )
+            connection.execute(
+                """INSERT INTO activity_sources (
+                       id, activity_id, source_type, completeness, parse_status, imported_at
+                   ) VALUES (?, ?, 'fit', 'complete', 'imported', 'now')""",
+                (f"source-{activity_id}", activity_id),
+            )
+
+    activities = load_recent_training_activities(database, limit=10)
+
+    assert [activity.activity_id for activity in activities] == ["old-bike", "new-bike"]
+    assert activities[0].source == "fit"
+    assert activities[0].ride_kind is None
+    assert activities[0].perceived_exertion is None
+    assert activities[1].average_power_w is None
+    assert activities[1].normalized_power_w is None
+    assert activities[1].distance_km is None
 
 
 def test_initialize_creates_exact_initial_tables(tmp_path: Path) -> None:

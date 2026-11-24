@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Any
 
 import ollama
@@ -31,6 +32,39 @@ from endurance_coach.llm.protocol import (
 from endurance_coach.skills import SkillLoader
 
 
+def _ollama_recommendation_schema() -> dict[str, Any]:
+    """Return the recommendation schema with local references expanded for Ollama."""
+    schema = WorkoutRecommendation.model_json_schema()
+    definitions = schema.get("$defs", {})
+
+    def expand(node: Any) -> Any:
+        if isinstance(node, list):
+            return [expand(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            name = reference.removeprefix("#/$defs/")
+            target = definitions.get(name)
+            if isinstance(target, dict):
+                expanded = expand(target)
+                return {
+                    **expanded,
+                    **{
+                        key: expand(value)
+                        for key, value in node.items()
+                        if key != "$ref"
+                    },
+                }
+        return {
+            key: expand(value)
+            for key, value in node.items()
+            if key != "$defs"
+        }
+
+    return expand(schema)
+
+
 class AgentRuntime:
     """Coordinate local Ollama messages, skill loading, and output validation."""
 
@@ -49,7 +83,13 @@ class AgentRuntime:
         """Validate untrusted model output at the application boundary."""
         return WorkoutRecommendation.model_validate(payload)
 
-    def run(self, request: str, activities: Sequence[TrainingActivity]) -> WorkoutRecommendation:
+    def run(
+        self,
+        request: str,
+        activities: Sequence[TrainingActivity],
+        *,
+        current_date: date | None = None,
+    ) -> WorkoutRecommendation:
         """Return one validated recommendation using bounded local-model tool calls.
 
         Activity validation and all training calculations happen before the model is
@@ -59,6 +99,8 @@ class AgentRuntime:
         Args:
             request: Athlete's non-empty workout question.
             activities: Recent, validated activities used as training evidence.
+            current_date: Date used to resolve relative requests. Defaults to the
+                latest supplied activity date for deterministic callers.
 
         Returns:
             A recommendation validated against the public workout contract.
@@ -79,13 +121,20 @@ class AgentRuntime:
             summary,
             self.settings,
             self.skill_loader,
+            current_date,
         )
         tools = [ollama_tool_definition()]
         client = self.client or ollama.Client(host=self.settings.host)
         loaded_skills: set[str] = set()
 
         for step in range(1, self.settings.max_steps + 1):
-            response_message = self._chat(client, messages, tools, step)
+            response_message = self._chat(
+                client,
+                messages,
+                tools,
+                step,
+                require_recommendation=bool(loaded_skills),
+            )
             assistant_message, tool_calls, content = parse_assistant_message(
                 response_message, step
             )
@@ -108,7 +157,23 @@ class AgentRuntime:
 
             if content is None or not content.strip():
                 raise AgentProtocolError(f"model returned an empty response at step {step}")
-            recommendation = self._parse_final_output(content, step)
+            try:
+                recommendation = self._parse_final_output(content, step)
+            except AgentProtocolError as exc:
+                if step == self.settings.max_steps:
+                    raise
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "The previous response did not match the required "
+                            "WorkoutRecommendation JSON schema. Correct it using only the "
+                            "existing evidence and loaded skill, then return JSON only. "
+                            f"Validation details: {exc}"
+                        ),
+                    }
+                )
+                continue
             if recommendation.source_skill not in loaded_skills:
                 raise AgentProtocolError(
                     f"model referenced an unloaded source skill at step {step}"
@@ -125,15 +190,25 @@ class AgentRuntime:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         step: int,
+        *,
+        require_recommendation: bool,
     ) -> Any:
         try:
+            request: dict[str, Any] = {
+                "model": self.settings.model,
+                "messages": messages,
+                "tools": tools,
+                "think": False,
+                "options": {
+                    "temperature": self.settings.temperature,
+                    "num_ctx": self.settings.context_length,
+                    "num_predict": self.settings.max_output_tokens,
+                },
+            }
+            if require_recommendation:
+                request["format"] = _ollama_recommendation_schema()
             response = client.chat(
-                model=self.settings.model,
-                messages=messages,
-                tools=tools,
-                think=False,
-                format=WorkoutRecommendation.model_json_schema(),
-                options={"temperature": self.settings.temperature},
+                **request,
             )
         except Exception as exc:
             raise AgentClientError(
@@ -146,12 +221,23 @@ class AgentRuntime:
     def _parse_final_output(self, content: str, step: int) -> WorkoutRecommendation:
         try:
             payload = json.loads(content)
-            if not isinstance(payload, dict):
-                raise TypeError
-            return self.validate_output(payload)
-        except (json.JSONDecodeError, TypeError, ValidationError):
+        except json.JSONDecodeError:
             raise AgentProtocolError(
-                f"model returned an invalid workout recommendation at step {step}"
+                f"model returned invalid JSON at step {step}"
+            ) from None
+        if not isinstance(payload, dict):
+            raise AgentProtocolError(
+                f"model returned a non-object recommendation at step {step}"
+            )
+        try:
+            return self.validate_output(payload)
+        except ValidationError as exc:
+            details = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in exc.errors(include_input=False)[:8]
+            )
+            raise AgentProtocolError(
+                f"model returned an invalid workout recommendation at step {step}: {details}"
             ) from None
 
 
