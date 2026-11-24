@@ -6,7 +6,7 @@ from pathlib import Path
 import frontmatter
 from pydantic import ValidationError
 
-from endurance_coach.models import LoadedSkill, SkillMetadata
+from endurance_coach.domain.models import LoadedSkill, SkillMetadata
 
 _SAFE_SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _MAX_SKILL_NAME_LENGTH = 64

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from endurance_coach.models import TrainingActivity
+from endurance_coach.domain.models import TrainingActivity
 
 
 def test_committed_sample_data_is_valid_and_spans_fourteen_days():

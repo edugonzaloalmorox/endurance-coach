@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from endurance_coach.models import TrainingActivity
+from endurance_coach.domain.models import TrainingActivity
 
 
 def synthetic_activities() -> list[TrainingActivity]:
@@ -163,6 +163,7 @@ def synthetic_activities() -> list[TrainingActivity]:
 
 
 def write_synthetic_activities(destination: Path) -> None:
+    """Write the deterministic synthetic activity set as formatted JSON."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = [activity.model_dump(mode="json") for activity in synthetic_activities()]
     destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

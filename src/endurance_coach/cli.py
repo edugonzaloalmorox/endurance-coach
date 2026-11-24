@@ -5,11 +5,11 @@ import json
 from datetime import date
 from pathlib import Path
 
+from endurance_coach.analysis import summarize_training
 from endurance_coach.config import IntervalsSettings, OllamaSettings, StorageSettings
+from endurance_coach.fixtures import synthetic_activities, write_synthetic_activities
 from endurance_coach.ingestion import FitIngestionError
 from endurance_coach.integrations import IntervalsClient, IntervalsError
-from endurance_coach.metrics import summarize_training
-from endurance_coach.sample_data import synthetic_activities, write_synthetic_activities
 from endurance_coach.services import (
     IntervalsSyncError,
     import_fit_archive,

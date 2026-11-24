@@ -23,12 +23,12 @@ planned.
 
 ## Components
 
-- `models.py` defines strict contracts for activities, progressive skill representations, workout
-  steps, and recommendations. Unexpected keys are rejected at boundaries.
-- `metrics.py` contains deterministic, side-effect-free intensity factor, TSS, and summary functions.
-  Missing power stays visible rather than being guessed.
-- `sample_data.py` creates ten rides spanning 14 calendar days. The same records are committed in
-  `data/synthetic_activities.json` for inspection and repeatable tests.
+- `domain/models.py` defines strict contracts for activities, progressive skill representations,
+  workout steps, and recommendations. Unexpected keys are rejected at boundaries.
+- `analysis/metrics.py` contains deterministic, side-effect-free intensity factor, TSS, and summary
+  functions. Missing power stays visible rather than being guessed.
+- `fixtures/synthetic.py` creates ten rides spanning 14 calendar days. The same records are
+  committed in `data/synthetic_activities.json` for inspection and repeatable tests.
 - `storage/sqlite.py` owns the versioned schema, transactional initialization, foreign-key and data
   constraints, per-file import transactions, idempotent source hashes, and bounded read-only
   inspection. It uses the Python standard library `sqlite3` module and `PRAGMA user_version`; no
@@ -50,9 +50,11 @@ planned.
 - `config.py` loads local database, archive, Intervals.icu, and Ollama settings. Intervals
   credentials may come from process variables or a small repository-local `.env` parsed as data,
   never executed; loading configuration performs no network I/O.
-- `skills.py` discovers validated metadata from immediate runtime-skill directories and explicitly
-  loads one selected instruction body while rejecting unsafe names and escaping paths.
-- `runtime.py` defines `AgentRuntime`. Output validation is implemented; the Ollama tool loop is not.
+- `skills/loader.py` discovers validated metadata from immediate runtime-skill directories and
+  explicitly loads one selected instruction body while rejecting unsafe names and escaping paths.
+- `llm/context.py`, `llm/protocol.py`, and `llm/runtime.py` separately own evidence assembly,
+  validated tool/message handling, and the bounded `AgentRuntime` loop. `llm/errors.py` defines the
+  safely reportable failure boundary.
 - `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
   discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
 - `cli.py` exposes safe scaffold operations plus database initialization, bounded activity
@@ -83,9 +85,12 @@ approved synthetic test fixtures are the only permitted format-specific exceptio
 `SkillLoader.discover()` must inspect only immediate skill directories, validate frontmatter, and
 return metadata. `load_skill()` is the only operation that should expose Markdown instructions.
 
-`AgentRuntime.run()` owns conversation messages and tool-call iteration. It should expose one narrow
-`load_skill` tool, place returned instructions into the conversation, stop on a final answer, parse
-JSON, and validate it with `WorkoutRecommendation`. It must not silently invent activities or power.
+`AgentRuntime.run()` owns conversation messages and bounded tool-call iteration. It exposes one
+narrow `load_skill` tool, places returned instructions into the conversation only after activation,
+stops on a final answer, parses JSON, and validates it with `WorkoutRecommendation`. Raw missing
+measurements remain `null`, deterministic summary metrics and their configured FTP input come from
+Python, and model thinking is neither requested nor copied into message history. It never silently
+invents activities or power.
 
 No networking occurs in metrics, model validation, skill loading, or sample-data generation. Ollama
 is the sole future network boundary and is expected to run locally.

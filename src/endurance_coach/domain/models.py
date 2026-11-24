@@ -6,9 +6,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-type JsonValue = (
-    str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
-)
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 type NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -188,12 +186,10 @@ class WorkoutStep(StrictModel):
 
 
 class WorkoutRecommendation(StrictModel):
-    """Structured output required from the future agent runtime."""
+    """Structured output required from the local agent runtime."""
 
     workout_date: date = Field(description="Calendar date for the proposed workout.")
-    title: NonEmptyText = Field(
-        description="Short human-readable workout title.",
-    )
+    title: NonEmptyText = Field(description="Short human-readable workout title.")
     ride_kind: RideKind = Field(
         description="Workout type selected from the supported cycling ride kinds.",
     )
@@ -230,6 +226,7 @@ class WorkoutRecommendation(StrictModel):
 
     @model_validator(mode="after")
     def steps_match_total_duration(self) -> "WorkoutRecommendation":
+        """Require workout steps to cover exactly the declared total duration."""
         step_total = sum(step.duration_minutes for step in self.steps)
         if step_total != self.duration_minutes:
             raise ValueError("step durations must sum to duration_minutes")

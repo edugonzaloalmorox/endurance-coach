@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from endurance_coach.models import LoadedSkill, SkillMetadata
+from endurance_coach.domain.models import LoadedSkill, SkillMetadata
 from endurance_coach.skills import SkillFormatError, SkillLoader
 
 

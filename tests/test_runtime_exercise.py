@@ -1,74 +1,241 @@
-"""Deferred executable specifications for Ollama runtime implementation issues."""
+"""Agent runtime context, skill-loop, and bounded-failure behavior."""
 
+import copy
+import json
 from pathlib import Path
 
 import pytest
 
+from endurance_coach.analysis import MissingTrainingDataError
 from endurance_coach.config import OllamaSettings
-from endurance_coach.metrics import MissingTrainingDataError
-from endurance_coach.runtime import AgentRuntime
+from endurance_coach.llm import (
+    AgentClientError,
+    AgentIterationLimitError,
+    AgentProtocolError,
+    AgentRuntime,
+    AgentToolError,
+)
 from endurance_coach.skills import SkillLoader
 
 
 class ScriptedOllamaClient:
-    """Small fake showing the two-turn tool-call protocol expected from run()."""
+    """Emit prescribed responses while recording immutable request snapshots."""
 
-    def __init__(self) -> None:
-        self.calls = 0
+    def __init__(self, *responses) -> None:
+        self.responses = list(responses)
+        self.requests = []
 
     def chat(self, **kwargs):
-        self.calls += 1
-        if self.calls == 1:
-            return {
-                "message": {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {"function": {"name": "load_skill", "arguments": {"name": "plan-workout"}}}
-                    ],
+        self.requests.append(copy.deepcopy(kwargs))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def tool_call(name="load_skill", arguments=None, *, thinking=None):
+    message = {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "function": {
+                    "name": name,
+                    "arguments": {"name": "plan-workout"} if arguments is None else arguments,
                 }
             }
-        return {
-            "message": {
-                "role": "assistant",
-                "content": (
-                    '{"workout_date":"2026-11-04","title":"Easy spin",'
-                    '"ride_kind":"recovery","duration_minutes":30,'
-                    '"rationale":"Absorb the recent load.","steps":['
-                    '{"name":"Easy spin","duration_minutes":30,"intensity":"RPE 2"}],'
-                    '"warnings":[],"source_skill":"plan-workout"}'
-                ),
+        ],
+    }
+    if thinking is not None:
+        message["thinking"] = thinking
+    return {"message": message}
+
+
+def final_response():
+    payload = {
+        "workout_date": "2026-11-04",
+        "title": "Easy spin",
+        "ride_kind": "recovery",
+        "duration_minutes": 30,
+        "objective": "Support recovery while maintaining easy aerobic movement.",
+        "rationale": "Recent volume was high and the latest session was a recovery ride.",
+        "evidence": [
+            {
+                "observation": "Ten rides totalled 423.1 km in the training window.",
+                "source": "deterministic_training_summary",
             }
-        }
+        ],
+        "uncertainty": {
+            "level": "medium",
+            "reasons": ["Two activities have no power measurement."],
+        },
+        "steps": [
+            {"name": "Easy spin", "duration_minutes": 30, "intensity": "RPE 2"}
+        ],
+        "warnings": ["Use RPE because some recent power data is unavailable."],
+        "source_skill": "plan-workout",
+    }
+    return {"message": {"role": "assistant", "content": json.dumps(payload)}}
 
 
-def make_runtime(client=None) -> AgentRuntime:
+def make_runtime(client=None, **settings) -> AgentRuntime:
     return AgentRuntime(
-        settings=OllamaSettings(),
+        settings=OllamaSettings(**settings),
         skill_loader=SkillLoader(Path("coach_skills")),
         client=client,
     )
 
 
-@pytest.mark.exercise
-@pytest.mark.xfail(
-    strict=True,
-    reason="Deferred to #19; remove this marker when #19 implements the skill tool loop.",
-)
 def test_runtime_executes_skill_tool_call_and_validates_final_output(activities):
-    client = ScriptedOllamaClient()
+    client = ScriptedOllamaClient(
+        tool_call(thinking="private chain of thought"),
+        final_response(),
+    )
 
     result = make_runtime(client).run("What should I ride tomorrow?", activities)
 
-    assert client.calls == 2
+    assert len(client.requests) == 2
     assert result.source_skill == "plan-workout"
     assert result.duration_minutes == 30
+    assert client.requests[0]["model"] == "qwen3:8b"
+    assert client.requests[0]["think"] is False
+    assert client.requests[0]["format"] == result.model_json_schema()
+
+    first_messages = client.requests[0]["messages"]
+    assert [message["role"] for message in first_messages] == ["system", "user"]
+    assert "# Plan a cycling workout" not in json.dumps(first_messages)
+    assert "Never fabricate missing history" in first_messages[0]["content"]
+
+    context = json.loads(first_messages[1]["content"])
+    assert all("instructions" not in skill for skill in context["available_skills"])
+    assert context["context_as_of"] == "2026-11-03"
+    assert context["available_skills"] == [
+        {
+            "name": "plan-workout",
+            "description": (
+                "Plans one safe cycling workout from recent training activities and current "
+                "fatigue. Use when a cyclist asks what ride to do next or requests a workout "
+                "recommendation."
+            ),
+        }
+    ]
+    assert context["metric_inputs"] == {"ftp_watts": 250}
+    assert context["deterministic_training_summary"]["total_tss"] == 735.5
+    assert context["deterministic_training_summary"]["activities_missing_power"] == 2
+    missing_power = context["recent_activities"][1]
+    assert missing_power["average_power_w"] is None
+    assert missing_power["normalized_power_w"] is None
+
+    second_messages = client.requests[1]["messages"]
+    assert [message["role"] for message in second_messages] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+    ]
+    assert "private chain of thought" not in json.dumps(second_messages)
+    tool_result = json.loads(second_messages[-1]["content"])
+    assert tool_result["tool_call_id"] == "step-1-call-1"
+    assert tool_result["name"] == "load_skill"
+    assert tool_result["is_error"] is False
+    assert tool_result["content"]["name"] == "plan-workout"
+    assert "# Plan a cycling workout" in tool_result["content"]["instructions"]
+
+    tool = client.requests[0]["tools"][0]["function"]
+    assert tool["name"] == "load_skill"
+    assert tool["parameters"]["required"] == ["name"]
+    assert tool["parameters"]["additionalProperties"] is False
 
 
-@pytest.mark.exercise
-@pytest.mark.xfail(
-    strict=True,
-    reason="Deferred to #18; remove this marker when #18 implements missing-data handling.",
-)
 def test_runtime_refuses_to_plan_without_activity_data():
+    client = ScriptedOllamaClient(final_response())
+
     with pytest.raises(MissingTrainingDataError, match="activity"):
-        make_runtime().run("What should I ride tomorrow?", [])
+        make_runtime(client).run("What should I ride tomorrow?", [])
+
+    assert client.requests == []
+
+
+@pytest.mark.parametrize("request_value", ["", "   ", 123])
+def test_runtime_rejects_invalid_request_before_calling_model(activities, request_value):
+    client = ScriptedOllamaClient(final_response())
+
+    with pytest.raises(ValueError, match="request"):
+        make_runtime(client).run(request_value, activities)
+
+    assert client.requests == []
+
+
+def test_runtime_revalidates_activity_inputs_before_calling_model(activities):
+    invalid = activities[0].model_dump()
+    invalid["duration_minutes"] = 0
+    client = ScriptedOllamaClient(final_response())
+
+    with pytest.raises(ValueError, match="invalid activity"):
+        make_runtime(client).run("Plan tomorrow", [invalid])
+
+    assert client.requests == []
+
+
+def test_runtime_bounds_activity_context(activities):
+    client = ScriptedOllamaClient(final_response())
+
+    with pytest.raises(ValueError, match="context limit of 2"):
+        make_runtime(client, max_context_activities=2).run("Plan tomorrow", activities)
+
+    assert client.requests == []
+
+
+@pytest.mark.parametrize(
+    ("response", "error", "match"),
+    [
+        (tool_call("delete_history"), AgentToolError, "unsupported tool 'delete_history'"),
+        (tool_call(arguments={}), AgentToolError, "invalid arguments"),
+        (
+            tool_call(arguments={"name": "unknown-skill"}),
+            AgentToolError,
+            "load_skill failed for 'unknown-skill'",
+        ),
+        ({"message": {"role": "assistant", "content": ""}}, AgentProtocolError, "empty"),
+        ({"message": {"role": "user", "content": "no"}}, AgentProtocolError, "assistant"),
+        (
+            {"message": {"role": "assistant", "tool_calls": {}}},
+            AgentProtocolError,
+            "invalid tool calls",
+        ),
+        (
+            {"message": {"role": "assistant", "tool_calls": [{"function": {}}]}},
+            AgentProtocolError,
+            "malformed tool call",
+        ),
+        (
+            {"message": {"role": "assistant", "content": "not-json"}},
+            AgentProtocolError,
+            "invalid workout recommendation",
+        ),
+        (final_response(), AgentProtocolError, "unloaded source skill"),
+    ],
+)
+def test_runtime_terminates_on_malformed_model_behavior(activities, response, error, match):
+    with pytest.raises(error, match=match):
+        make_runtime(ScriptedOllamaClient(response)).run("Plan tomorrow", activities)
+
+
+def test_runtime_reports_client_error_without_exposing_client_message(activities):
+    client = ScriptedOllamaClient(ConnectionError("secret-token=do-not-expose"))
+
+    with pytest.raises(AgentClientError) as error:
+        make_runtime(client).run("Plan tomorrow", activities)
+
+    assert "step 1" in str(error.value)
+    assert "ConnectionError" in str(error.value)
+    assert "secret-token" not in str(error.value)
+    assert error.value.__cause__ is None
+
+
+def test_runtime_stops_at_configured_step_limit(activities):
+    client = ScriptedOllamaClient(tool_call(), tool_call(), final_response())
+
+    with pytest.raises(AgentIterationLimitError, match="within 2 steps"):
+        make_runtime(client, max_steps=2).run("Plan tomorrow", activities)
+
+    assert len(client.requests) == 2

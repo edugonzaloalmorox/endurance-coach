@@ -1,6 +1,6 @@
 import pytest
 
-from endurance_coach.metrics import (
+from endurance_coach.analysis import (
     MissingTrainingDataError,
     intensity_factor,
     summarize_training,

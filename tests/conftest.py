@@ -1,6 +1,6 @@
 import pytest
 
-from endurance_coach.sample_data import synthetic_activities
+from endurance_coach.fixtures import synthetic_activities
 
 
 @pytest.fixture

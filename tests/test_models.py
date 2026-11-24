@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 from pydantic import ValidationError
 
-from endurance_coach.models import (
+from endurance_coach.domain.models import (
     LoadedSkill,
     RecommendationEvidence,
     RecommendationUncertainty,
@@ -15,7 +15,7 @@ from endurance_coach.models import (
     WorkoutRecommendation,
     WorkoutStep,
 )
-from endurance_coach.runtime import AgentRuntime
+from endurance_coach.llm import AgentRuntime
 
 
 def valid_recommendation() -> dict:

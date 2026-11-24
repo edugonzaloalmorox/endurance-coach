@@ -51,6 +51,9 @@ class OllamaSettings(BaseModel):
     host: str = Field(default="http://localhost:11434")
     model: str = Field(default="qwen3:8b", min_length=1)
     temperature: float = Field(default=0.2, ge=0, le=2)
+    ftp_watts: int = Field(default=250, gt=0, le=1_000)
+    max_steps: int = Field(default=4, ge=1, le=20)
+    max_context_activities: int = Field(default=50, ge=1, le=500)
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":

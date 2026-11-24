@@ -81,9 +81,9 @@ uv run pytest
 uv run ruff check .
 ```
 
-The full suite currently collects deferred executable product specifications as strict expected
-failures. Strict mode keeps their assertions visible and makes an unexpected pass fail until the
-marker is removed. See [`docs/exercises.md`](docs/exercises.md) and
+The scripted runtime tests exercise the local-model protocol without contacting an Ollama server.
+They verify dated deterministic context, progressive skill loading, final recommendation validation,
+and bounded safe failures. See [`docs/exercises.md`](docs/exercises.md) and
 [`docs/testing-guidelines.md`](docs/testing-guidelines.md).
 
 ## Scope and safety

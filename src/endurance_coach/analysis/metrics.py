@@ -5,7 +5,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from endurance_coach.models import TrainingActivity
+from endurance_coach.domain.models import TrainingActivity
 
 
 class MissingTrainingDataError(ValueError):
@@ -13,6 +13,8 @@ class MissingTrainingDataError(ValueError):
 
 
 class TrainingSummary(BaseModel):
+    """Deterministic aggregate for a dated training window."""
+
     model_config = ConfigDict(extra="forbid")
 
     start_date: date
