@@ -17,8 +17,9 @@ user request -> AgentRuntime ---------+-> WorkoutRecommendation
 
 Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optional Strava-style
 CSV rows adding descriptive metadata by archive-relative filename. Bounded Intervals.icu summary
-retrieval, normalization, and incremental persistence are implemented; cross-source reconciliation
-and database-backed coaching remain planned.
+retrieval, normalization, incremental persistence, and conservative reconciliation with historical
+FIT/Strava activities are implemented; COROS supplementation and database-backed coaching remain
+planned.
 
 ## Components
 
@@ -43,6 +44,9 @@ and database-backed coaching remain planned.
   failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `services/intervals_sync.py` applies overlap windows and advances sync state only in the same
   transaction as a successful idempotent activity batch.
+- `domain/reconciliation.py` selects only unique exact-identity or compatible time-and-duration
+  matches. Intervals.icu becomes the canonical summary while FIT measurements and source provenance
+  remain attached; ambiguous candidates stay separate.
 - `config.py` loads local database, archive, Intervals.icu, and Ollama settings. Intervals
   credentials may come from process variables or a small repository-local `.env` parsed as data,
   never executed; loading configuration performs no network I/O.

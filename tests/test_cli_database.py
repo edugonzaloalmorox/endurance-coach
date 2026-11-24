@@ -235,6 +235,7 @@ def test_db_sync_intervals_reports_aggregate_counts(
         "inserted": 1,
         "newest": "2026-11-02",
         "oldest": "2026-11-01",
+        "reconciled": 0,
         "updated": 0,
     }
     assert "synthetic-secret" not in output

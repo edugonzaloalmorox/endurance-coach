@@ -67,6 +67,7 @@ def test_sync_is_idempotent_and_retries_with_overlap(tmp_path: Path) -> None:
         "fetched": 1,
         "inserted": 1,
         "updated": 0,
+        "reconciled": 0,
     }
     assert second.inserted == 0
     assert second.updated == 1

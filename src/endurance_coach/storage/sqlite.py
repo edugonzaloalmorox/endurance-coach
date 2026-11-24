@@ -5,9 +5,14 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from endurance_coach.domain import (
+    ActivityMatchCandidate,
+    ImportedActivity,
+    select_activity_match,
+)
 from endurance_coach.ingestion.csv_metadata import HistoricalMetadata
 from endurance_coach.ingestion.fit import FitArtifact
 from endurance_coach.integrations import NormalizedIntervalsActivity
@@ -258,6 +263,29 @@ class IntervalsWriteResult:
 
     inserted: int
     updated: int
+    reconciled: int
+
+
+@dataclass(frozen=True)
+class _StoredActivity:
+    """Private activity summary used while reconciling provider sources."""
+
+    activity_id: str
+    activity_type: str
+    name: str | None
+    description: str | None
+    started_at_utc: str
+    timezone_offset_minutes: int | None
+    elapsed_seconds: float | None
+    moving_seconds: float | None
+    distance_m: float | None
+    elevation_gain_m: float | None
+    average_power_w: float | None
+    normalized_power_w: float | None
+    average_heart_rate_bpm: float | None
+    power_origin: str
+    quality_status: str
+    created_at: str
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -714,6 +742,211 @@ def _set_intervals_sync_status(path: Path, status: str, error_code: str | None) 
         raise StorageError("sync state update failed") from exc
 
 
+def _stored_activity(
+    connection: sqlite3.Connection, activity_id: str
+) -> _StoredActivity | None:
+    row = connection.execute(
+        """SELECT id, activity_type, name, description, started_at_utc,
+                  timezone_offset_minutes, elapsed_seconds, moving_seconds,
+                  distance_m, elevation_gain_m, average_power_w,
+                  normalized_power_w, average_heart_rate_bpm, power_origin,
+                  quality_status, created_at
+           FROM activities
+           WHERE id = ?""",
+        (activity_id,),
+    ).fetchone()
+    return _StoredActivity(*row) if row else None
+
+
+def _reconciliation_candidates(
+    connection: sqlite3.Connection,
+    activity: ImportedActivity,
+    source_external_id: str,
+) -> tuple[ActivityMatchCandidate, ...]:
+    window_start = (activity.started_at_utc - timedelta(minutes=5)).isoformat()
+    window_end = (activity.started_at_utc + timedelta(minutes=5)).isoformat()
+    rows = connection.execute(
+        """SELECT DISTINCT activity.id, activity.started_at_utc,
+                          activity.elapsed_seconds, activity.moving_seconds
+           FROM activities AS activity
+           WHERE activity.id != ?
+             AND NOT EXISTS (
+                 SELECT 1 FROM activity_sources AS primary_source
+                 WHERE primary_source.activity_id = activity.id
+                   AND primary_source.source_type = 'intervals'
+             )
+             AND (
+                 activity.started_at_utc BETWEEN ? AND ?
+                 OR EXISTS (
+                     SELECT 1 FROM activity_sources AS exact_source
+                     WHERE exact_source.activity_id = activity.id
+                       AND exact_source.external_id = ?
+                 )
+             )""",
+        (activity.activity_id, window_start, window_end, source_external_id),
+    ).fetchall()
+    candidates = []
+    for row in rows:
+        external_ids = tuple(
+            source[0]
+            for source in connection.execute(
+                """SELECT DISTINCT external_id
+                   FROM activity_sources
+                   WHERE activity_id = ? AND external_id IS NOT NULL
+                   ORDER BY external_id""",
+                (row[0],),
+            )
+        )
+        candidates.append(
+            ActivityMatchCandidate(
+                activity_id=row[0],
+                started_at_utc=datetime.fromisoformat(row[1]),
+                elapsed_seconds=row[2],
+                moving_seconds=row[3],
+                source_external_ids=external_ids,
+            )
+        )
+    return tuple(candidates)
+
+
+def _reconciliation_match(
+    connection: sqlite3.Connection,
+    activity: ImportedActivity,
+    source_external_id: str,
+) -> str | None:
+    linked = connection.execute(
+        """SELECT activity_id FROM activity_sources
+           WHERE source_type = 'intervals' AND external_id = ?""",
+        (source_external_id,),
+    ).fetchone()
+    if linked and linked[0] != activity.activity_id:
+        return linked[0]
+    return select_activity_match(
+        activity,
+        source_external_id,
+        _reconciliation_candidates(connection, activity, source_external_id),
+    )
+
+
+def _primary_activity_values(
+    activity: ImportedActivity,
+    fallback: _StoredActivity | None,
+    now: str,
+) -> tuple[object, ...]:
+    fallback_type = fallback.activity_type if fallback else None
+    activity_type = (
+        fallback_type
+        if activity.activity_type == "unknown" and fallback_type
+        else activity.activity_type
+    )
+
+    def prefer_primary(value: object, fallback_value: object = None) -> object:
+        return value if value is not None else fallback_value
+
+    has_primary_power = (
+        activity.average_power_w is not None or activity.normalized_power_w is not None
+    )
+    quality_status = (
+        "complete"
+        if fallback and fallback.quality_status == "complete"
+        else activity.quality_status
+    )
+    return (
+        activity.activity_id,
+        activity_type,
+        prefer_primary(activity.name, fallback.name if fallback else None),
+        prefer_primary(
+            activity.description, fallback.description if fallback else None
+        ),
+        activity.started_at_utc.isoformat(),
+        prefer_primary(
+            activity.timezone_offset_minutes,
+            fallback.timezone_offset_minutes if fallback else None,
+        ),
+        prefer_primary(
+            activity.elapsed_seconds, fallback.elapsed_seconds if fallback else None
+        ),
+        prefer_primary(
+            activity.moving_seconds, fallback.moving_seconds if fallback else None
+        ),
+        prefer_primary(activity.distance_m, fallback.distance_m if fallback else None),
+        prefer_primary(
+            activity.elevation_gain_m, fallback.elevation_gain_m if fallback else None
+        ),
+        prefer_primary(
+            activity.average_power_w, fallback.average_power_w if fallback else None
+        ),
+        prefer_primary(
+            activity.normalized_power_w,
+            fallback.normalized_power_w if fallback else None,
+        ),
+        prefer_primary(
+            activity.average_heart_rate_bpm,
+            fallback.average_heart_rate_bpm if fallback else None,
+        ),
+        (
+            activity.power_origin
+            if has_primary_power or fallback is None
+            else fallback.power_origin
+        ),
+        quality_status,
+        fallback.created_at if fallback else now,
+        now,
+    )
+
+
+def _upsert_primary_activity(
+    connection: sqlite3.Connection,
+    activity: ImportedActivity,
+    fallback: _StoredActivity | None,
+    now: str,
+) -> None:
+    connection.execute(
+        """INSERT INTO activities (
+               id, activity_type, name, description, started_at_utc,
+               timezone_offset_minutes, elapsed_seconds, moving_seconds,
+               distance_m, elevation_gain_m, average_power_w,
+               normalized_power_w, average_heart_rate_bpm, power_origin,
+               quality_status, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+               activity_type = excluded.activity_type,
+               name = excluded.name,
+               description = excluded.description,
+               started_at_utc = excluded.started_at_utc,
+               timezone_offset_minutes = excluded.timezone_offset_minutes,
+               elapsed_seconds = excluded.elapsed_seconds,
+               moving_seconds = excluded.moving_seconds,
+               distance_m = excluded.distance_m,
+               elevation_gain_m = excluded.elevation_gain_m,
+               average_power_w = excluded.average_power_w,
+               normalized_power_w = excluded.normalized_power_w,
+               average_heart_rate_bpm = excluded.average_heart_rate_bpm,
+               power_origin = excluded.power_origin,
+               quality_status = excluded.quality_status,
+               updated_at = excluded.updated_at""",
+        _primary_activity_values(activity, fallback, now),
+    )
+
+
+def _merge_activity(
+    connection: sqlite3.Connection, source_activity_id: str, target_activity_id: str
+) -> None:
+    connection.execute(
+        "UPDATE activity_sources SET activity_id = ? WHERE activity_id = ?",
+        (target_activity_id, source_activity_id),
+    )
+    connection.execute(
+        "UPDATE activity_records SET activity_id = ? WHERE activity_id = ?",
+        (target_activity_id, source_activity_id),
+    )
+    connection.execute(
+        "UPDATE activity_metrics SET activity_id = ? WHERE activity_id = ?",
+        (target_activity_id, source_activity_id),
+    )
+    connection.execute("DELETE FROM activities WHERE id = ?", (source_activity_id,))
+
+
 def store_intervals_activities(
     path: Path,
     activities: tuple[NormalizedIntervalsActivity, ...],
@@ -734,59 +967,27 @@ def store_intervals_activities(
         StorageError: If any write fails; the batch and cursor are rolled back together.
     """
     now = datetime.now(UTC).isoformat()
-    inserted = updated = 0
+    inserted = updated = reconciled = 0
     try:
         with _connect(path) as connection:
             connection.execute("BEGIN IMMEDIATE")
             for normalized in activities:
                 activity = normalized.activity
-                existed = connection.execute(
-                    "SELECT 1 FROM activities WHERE id = ?", (activity.activity_id,)
-                ).fetchone()
-                connection.execute(
-                    """INSERT INTO activities (
-                           id, activity_type, name, description, started_at_utc,
-                           timezone_offset_minutes, elapsed_seconds, moving_seconds,
-                           distance_m, elevation_gain_m, average_power_w,
-                           normalized_power_w, average_heart_rate_bpm, power_origin,
-                           quality_status, created_at, updated_at
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(id) DO UPDATE SET
-                           activity_type = excluded.activity_type,
-                           name = excluded.name,
-                           description = excluded.description,
-                           started_at_utc = excluded.started_at_utc,
-                           timezone_offset_minutes = excluded.timezone_offset_minutes,
-                           elapsed_seconds = excluded.elapsed_seconds,
-                           moving_seconds = excluded.moving_seconds,
-                           distance_m = excluded.distance_m,
-                           elevation_gain_m = excluded.elevation_gain_m,
-                           average_power_w = excluded.average_power_w,
-                           normalized_power_w = excluded.normalized_power_w,
-                           average_heart_rate_bpm = excluded.average_heart_rate_bpm,
-                           power_origin = excluded.power_origin,
-                           quality_status = excluded.quality_status,
-                           updated_at = excluded.updated_at""",
-                    (
-                        activity.activity_id,
-                        activity.activity_type,
-                        activity.name,
-                        activity.description,
-                        activity.started_at_utc.isoformat(),
-                        activity.timezone_offset_minutes,
-                        activity.elapsed_seconds,
-                        activity.moving_seconds,
-                        activity.distance_m,
-                        activity.elevation_gain_m,
-                        activity.average_power_w,
-                        activity.normalized_power_w,
-                        activity.average_heart_rate_bpm,
-                        activity.power_origin,
-                        activity.quality_status,
-                        now,
-                        now,
-                    ),
+                canonical_existed = _stored_activity(
+                    connection, activity.activity_id
                 )
+                match_id = _reconciliation_match(
+                    connection, activity, normalized.external_id
+                )
+                matched = (
+                    _stored_activity(connection, match_id) if match_id else None
+                )
+                _upsert_primary_activity(
+                    connection, activity, matched or canonical_existed, now
+                )
+                if match_id and match_id != activity.activity_id:
+                    _merge_activity(connection, match_id, activity.activity_id)
+                    reconciled += 1
                 source_id = "intervals:" + hashlib.sha256(
                     normalized.external_id.encode()
                 ).hexdigest()
@@ -805,7 +1006,7 @@ def store_intervals_activities(
                            imported_at = excluded.imported_at""",
                     (source_id, activity.activity_id, normalized.external_id, now),
                 )
-                if existed:
+                if canonical_existed or matched:
                     updated += 1
                 else:
                     inserted += 1
@@ -828,6 +1029,8 @@ def store_intervals_activities(
                 (now, synced_through.isoformat(), now),
             )
             connection.commit()
-        return IntervalsWriteResult(inserted=inserted, updated=updated)
+        return IntervalsWriteResult(
+            inserted=inserted, updated=updated, reconciled=reconciled
+        )
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("Intervals.icu persistence failed") from exc

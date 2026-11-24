@@ -43,6 +43,7 @@ class IntervalsSyncSummary:
     fetched: int
     inserted: int
     updated: int
+    reconciled: int
 
     def as_dict(self) -> dict[str, str | int]:
         """Return JSON-safe dates and aggregate counts."""
@@ -105,4 +106,5 @@ def sync_intervals_activities(
         fetched=len(fetched),
         inserted=result.inserted,
         updated=result.updated,
+        reconciled=result.reconciled,
     )

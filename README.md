@@ -54,7 +54,12 @@ Set `INTERVALS_ICU_API_KEY` and optionally `INTERVALS_ICU_ATHLETE_ID` before the
 sync. They may be exported or stored in the repository-local ignored `.env`; process variables take
 precedence. `INTERVALS_API_KEY` is also accepted as a compatibility alias. The initial
 `db sync-intervals` requires `--oldest`; later runs resume with a seven-day overlap and atomically
-upsert summaries and advance the successful cursor. No provider data is written back.
+upsert summaries, reconcile unambiguous FIT/Strava duplicates, and advance the successful cursor.
+Intervals.icu supplies the canonical activity identity and non-null summary fields; original FIT
+sensor records and all source provenance remain attached. Matching uses exact source identities or
+a unique start-time and duration match. Ambiguous or materially different activities remain
+separate. Sync output includes the privacy-safe number of reconciled activities. No provider data
+is written back.
 
 Run `make update-db` at the start of each fresh local session to update the database through today.
 For a brand-new database, bootstrap it once with
@@ -87,7 +92,7 @@ The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runti
 and autonomous workout-plan changes. Synthetic JSON remains the only coaching-workflow activity
 source. The SQLite foundation, historical FIT/FIT.GZ ingestion with complementary CSV metadata,
 and bounded read-only incremental Intervals.icu activity synchronization are implemented.
-Cross-source reconciliation and database-backed coaching remain planned work.
+COROS supplementation and database-backed coaching remain planned work.
 
 Real training archives, generated databases, FIT/GPX files, and Parquet files are excluded from
 version control. Only explicitly approved synthetic fixtures under `tests/fixtures/` may opt back in
