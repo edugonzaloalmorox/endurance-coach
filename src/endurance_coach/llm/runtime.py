@@ -157,6 +157,21 @@ class AgentRuntime:
 
             if content is None or not content.strip():
                 raise AgentProtocolError(f"model returned an empty response at step {step}")
+            if not loaded_skills:
+                if step == self.settings.max_steps:
+                    raise AgentProtocolError(
+                        f"model returned a recommendation before loading a skill at step {step}"
+                    )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Do not return a recommendation yet. Call load_skill for the "
+                            "relevant available skill now, with no other content."
+                        ),
+                    }
+                )
+                continue
             try:
                 recommendation = self._parse_final_output(content, step)
             except AgentProtocolError as exc:
@@ -197,7 +212,6 @@ class AgentRuntime:
             request: dict[str, Any] = {
                 "model": self.settings.model,
                 "messages": messages,
-                "tools": tools,
                 "think": False,
                 "options": {
                     "temperature": self.settings.temperature,
@@ -207,6 +221,8 @@ class AgentRuntime:
             }
             if require_recommendation:
                 request["format"] = _ollama_recommendation_schema()
+            else:
+                request["tools"] = tools
             response = client.chat(
                 **request,
             )

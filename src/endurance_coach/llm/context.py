@@ -94,8 +94,9 @@ def build_initial_messages(
                 "measurements, recovery signals, or calculations. JSON null means unavailable; "
                 "preserve that limitation in evidence, uncertainty, and warnings. Treat relative "
                 "dates in the athlete request as relative to context_as_of. Skill metadata is "
-                "provided for discovery; call load_skill before following a skill's instructions. "
-                "Return only JSON matching the WorkoutRecommendation schema."
+                "provided for discovery. Your first response must call load_skill for the relevant "
+                "skill and must not contain a recommendation. After the skill is loaded, return "
+                "only JSON matching the WorkoutRecommendation schema."
             ),
         },
         {

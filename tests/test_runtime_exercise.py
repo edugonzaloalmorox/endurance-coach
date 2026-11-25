@@ -98,7 +98,24 @@ def test_runtime_executes_skill_tool_call_and_validates_final_output(activities)
     assert result.duration_minutes == 30
     assert client.requests[0]["model"] == "qwen3:8b"
     assert client.requests[0]["think"] is False
-    assert client.requests[0]["format"] == result.model_json_schema()
+    assert "format" not in client.requests[0]
+    assert "tools" in client.requests[0]
+    assert "tools" not in client.requests[1]
+    recommendation_schema = client.requests[1]["format"]
+    assert recommendation_schema["type"] == "object"
+    assert set(recommendation_schema["required"]) == {
+        "workout_date",
+        "title",
+        "ride_kind",
+        "duration_minutes",
+        "objective",
+        "rationale",
+        "evidence",
+        "uncertainty",
+        "steps",
+        "source_skill",
+    }
+    assert "$defs" not in recommendation_schema
 
     first_messages = client.requests[0]["messages"]
     assert [message["role"] for message in first_messages] == ["system", "user"]
@@ -209,12 +226,18 @@ def test_runtime_bounds_activity_context(activities):
             AgentProtocolError,
             "malformed tool call",
         ),
-        (final_response(), AgentProtocolError, "unloaded source skill"),
     ],
 )
 def test_runtime_terminates_on_malformed_model_behavior(activities, response, error, match):
     with pytest.raises(error, match=match):
         make_runtime(ScriptedOllamaClient(response)).run("Plan tomorrow", activities)
+
+
+def test_runtime_rejects_recommendation_without_loaded_skill_at_limit(activities):
+    with pytest.raises(AgentProtocolError, match="before loading a skill"):
+        make_runtime(ScriptedOllamaClient(final_response()), max_steps=1).run(
+            "Plan tomorrow", activities
+        )
 
 
 def test_runtime_reports_client_error_without_exposing_client_message(activities):
@@ -248,13 +271,38 @@ def test_runtime_retries_invalid_recommendation_with_bounded_feedback(activities
     assert "not-json" not in feedback["content"]
 
 
+def test_runtime_redirects_premature_wrapped_recommendation_to_skill_tool(activities):
+    client = ScriptedOllamaClient(
+        {
+            "message": {
+                "role": "assistant",
+                "content": json.dumps({"workout_recommendation": {}}),
+            }
+        },
+        tool_call(),
+        final_response(),
+    )
+
+    result = make_runtime(client, max_steps=3).run(
+        "Based on my last workouts, what should I focus next", activities
+    )
+
+    assert result.source_skill == "plan-workout"
+    correction = client.requests[1]["messages"][-1]
+    assert correction["role"] == "user"
+    assert "Call load_skill" in correction["content"]
+    assert "format" not in client.requests[1]
+    assert "format" in client.requests[2]
+
+
 def test_runtime_rejects_invalid_recommendation_at_step_limit(activities):
     client = ScriptedOllamaClient(
-        {"message": {"role": "assistant", "content": "not-json"}}
+        tool_call(),
+        {"message": {"role": "assistant", "content": json.dumps({})}},
     )
 
     with pytest.raises(AgentProtocolError, match="invalid workout recommendation"):
-        make_runtime(client, max_steps=1).run("Plan tomorrow", activities)
+        make_runtime(client, max_steps=2).run("Plan tomorrow", activities)
 
 
 def test_runtime_stops_at_configured_step_limit(activities):
