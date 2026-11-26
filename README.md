@@ -30,6 +30,8 @@ uv run endurance-coach db import-fit /path/to/archive --dry-run
 uv run endurance-coach db import-fit /path/to/archive
 uv run endurance-coach db sync-intervals --oldest 2026-01-01
 make update-db
+uv run endurance-coach coros discover
+uv run endurance-coach coros recovery --days 7
 uv run endurance-coach ask "Based on my last workouts, what should I focus next"
 uv run endurance-coach metrics --ftp 250
 ```
@@ -73,6 +75,20 @@ a unique start-time and duration match. Ambiguous or materially different activi
 separate. Sync output includes the privacy-safe number of reconciled activities. No provider data
 is written back.
 
+The optional COROS integration uses the official single-user MCP service for supplementary health
+and recovery observations. Run `uv run endurance-coach coros discover` for the initial OAuth flow:
+open the printed COROS URL, authorize the application, and paste the browser's final local redirect
+URL into the terminal. OAuth state is stored locally in the ignored
+`data/coros_oauth.json` file with owner-only permissions; override its location with
+`COROS_OAUTH_STATE_PATH`. European, US, and mainland-China accounts can set `COROS_MCP_URL` to the
+corresponding official regional endpoint.
+
+`coros discover` reports which verified read tools are available and which advertised tools are
+blocked. `coros recovery --days 7` retrieves bounded sleep, HRV, resting-heart-rate, stress,
+recovery-status, and training-load observations when those tools are available. The client never
+calls COROS workout or training-plan creation/update tools, never downloads GPS-bearing FIT files,
+and does not yet feed the recovery snapshot into `ask` automatically.
+
 Run `make update-db` at the start of each fresh local session to update the database through today.
 For a brand-new database, bootstrap it once with
 `./scripts/update_database.sh --oldest YYYY-MM-DD`; subsequent runs need no arguments. A failed
@@ -101,7 +117,8 @@ and bounded safe failures. See [`docs/exercises.md`](docs/exercises.md) and
 ## Scope and safety
 
 The MVP excludes nutrition, Google Sheets, web frontends, multiple product/runtime coaching agents,
-COROS supplementation, and autonomous workout-plan changes. Historical FIT/FIT.GZ and read-only
+automatic COROS-to-coaching supplementation, and autonomous workout-plan changes. Historical
+FIT/FIT.GZ and read-only
 Intervals.icu summaries in SQLite are the coaching workflow's activity source; deterministic
 synthetic JSON remains available for tests and examples.
 

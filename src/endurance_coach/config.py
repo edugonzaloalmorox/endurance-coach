@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 _MAX_DOTENV_BYTES = 64 * 1024
 
@@ -110,4 +111,69 @@ class IntervalsSettings(BaseModel):
         return cls(
             athlete_id=_env_or_dotenv("INTERVALS_ICU_ATHLETE_ID") or "0",
             api_key=api_key,
+        )
+
+
+class CorosSettings(BaseModel):
+    """Configuration for the official single-user COROS MCP service."""
+
+    endpoint: str = Field(default="https://mcp.coros.com/mcp")
+    oauth_state_path: Path = Field(default=Path("data/coros_oauth.json"))
+    redirect_uri: str = Field(default="http://127.0.0.1:8765/callback")
+    timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    max_response_bytes: int = Field(default=256 * 1024, ge=1024, le=1024 * 1024)
+
+    @field_validator("endpoint")
+    @classmethod
+    def official_coros_endpoint(cls, value: str) -> str:
+        """Accept only documented COROS HTTPS MCP endpoints."""
+        parsed = urlparse(value.strip())
+        allowed_hosts = {
+            "mcp.coros.com",
+            "mcpcn.coros.com",
+            "mcpeu.coros.com",
+            "mcpus.coros.com",
+        }
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname not in allowed_hosts
+            or parsed.path.rstrip("/") != "/mcp"
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("COROS_MCP_URL must be an official COROS HTTPS MCP endpoint")
+        return value.strip()
+
+    @field_validator("redirect_uri")
+    @classmethod
+    def local_redirect_only(cls, value: str) -> str:
+        """Keep authorization callbacks on the local machine."""
+        parsed = urlparse(value.strip())
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost"}
+            or not parsed.port
+            or parsed.path != "/callback"
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("COROS redirect URI must be a local HTTP callback")
+        return value.strip()
+
+    @classmethod
+    def from_env(cls) -> "CorosSettings":
+        """Load non-secret COROS connection settings from the environment."""
+        return cls(
+            endpoint=_env_or_dotenv("COROS_MCP_URL") or "https://mcp.coros.com/mcp",
+            oauth_state_path=Path(
+                _env_or_dotenv("COROS_OAUTH_STATE_PATH") or "data/coros_oauth.json"
+            ),
+            redirect_uri=(
+                _env_or_dotenv("COROS_OAUTH_REDIRECT_URI")
+                or "http://127.0.0.1:8765/callback"
+            ),
         )

@@ -6,10 +6,15 @@ from datetime import date
 from pathlib import Path
 
 from endurance_coach.analysis import MissingTrainingDataError, summarize_training
-from endurance_coach.config import IntervalsSettings, OllamaSettings, StorageSettings
+from endurance_coach.config import (
+    CorosSettings,
+    IntervalsSettings,
+    OllamaSettings,
+    StorageSettings,
+)
 from endurance_coach.fixtures import synthetic_activities, write_synthetic_activities
 from endurance_coach.ingestion import FitIngestionError
-from endurance_coach.integrations import IntervalsClient, IntervalsError
+from endurance_coach.integrations import CorosClient, CorosError, IntervalsClient, IntervalsError
 from endurance_coach.llm import AgentRuntime, AgentRuntimeError
 from endurance_coach.services import (
     IntervalsSyncError,
@@ -59,6 +64,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=50,
         help="maximum recent cycling activities to analyze, up to 500 (default: 50)",
+    )
+    coros = subparsers.add_parser(
+        "coros", help="access supplementary recovery data through read-only COROS MCP tools"
+    )
+    coros_commands = coros.add_subparsers(dest="coros_command", required=True)
+    coros_commands.add_parser(
+        "discover", help="authorize if needed and show allowed available tools"
+    )
+    recovery = coros_commands.add_parser(
+        "recovery", help="retrieve a bounded supplementary recovery snapshot"
+    )
+    recovery.add_argument(
+        "--days",
+        type=_positive_int,
+        default=7,
+        help="number of recent days, from 1 through 30 (default: 7)",
     )
     database = subparsers.add_parser("db", help="manage the local training database")
     database_commands = database.add_subparsers(dest="database_command", required=True)
@@ -139,6 +160,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "config":
         print(OllamaSettings.from_env().model_dump_json(indent=2))
+    elif args.command == "coros":
+        try:
+            client = CorosClient(CorosSettings.from_env())
+            result = (
+                client.discover_tools()
+                if args.coros_command == "discover"
+                else client.recovery_snapshot(args.days)
+            )
+        except (CorosError, ValueError) as exc:
+            print(json.dumps({"error": str(exc)}))
+            return 2
+        print(result.model_dump_json(indent=2))
     elif args.command == "ask":
         storage_settings = StorageSettings.from_env()
         ollama_settings = OllamaSettings.from_env()

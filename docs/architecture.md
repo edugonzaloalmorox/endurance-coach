@@ -17,7 +17,9 @@ Historical FIT/FIT.GZ ingestion populates the persistence foundation, with optio
 CSV rows adding descriptive metadata by archive-relative filename. Bounded Intervals.icu summary
 retrieval, normalization, incremental persistence, and conservative reconciliation with historical
 FIT/Strava activities are implemented. Recent persisted cycling summaries feed the local coaching
-runtime; COROS supplementation remains planned.
+runtime. A read-only COROS MCP boundary now supports OAuth-aware tool discovery and bounded recovery
+snapshot retrieval; deterministic normalization and automatic coaching-context supplementation
+remain planned.
 
 ## Components
 
@@ -39,6 +41,9 @@ runtime; COROS supplementation remains planned.
   rows by their FIT filename without treating CSV summaries as sensor measurements.
 - `integrations/intervals.py` retrieves and normalizes read-only activity summaries in bounded date
   windows while preserving missing fields and source identity.
+- `integrations/coros.py` uses the official MCP SDK for OAuth and Streamable HTTP, persists tokens
+  in an ignored owner-only local file, discovers tools through a strict read allowlist, and retrieves
+  bounded raw recovery observations without exposing COROS write or FIT-download operations.
 - `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
   failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `services/intervals_sync.py` applies overlap windows and advances sync state only in the same
