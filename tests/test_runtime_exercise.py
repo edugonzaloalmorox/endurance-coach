@@ -129,6 +129,14 @@ def test_runtime_executes_skill_tool_call_and_validates_final_output(activities)
     assert context["days_since_last_activity"] == 0
     assert context["available_skills"] == [
         {
+            "name": "analyze-training",
+            "description": (
+                "Analyzes recent cycling training from supplied deterministic metrics and "
+                "dated activities. Use when a cyclist asks about training patterns, load, "
+                "consistency, progress, or what the evidence suggests."
+            ),
+        },
+        {
             "name": "plan-workout",
             "description": (
                 "Plans one safe cycling workout from recent training activities and current "

@@ -3,8 +3,9 @@
 Endurance Coach is a local Python AI cycling coach for long-distance training. Development follows
 an implementation-first workflow: build the requested behavior, demonstrate it, add essential
 tests, and run the final test and lint checks. The current product includes
-validated data contracts, deterministic cycling metrics, synthetic training data, one runtime
-coaching skill, a versioned local SQLite schema, and the public seams for a local Ollama runtime.
+validated data contracts, deterministic cycling metrics, synthetic training data, runtime skills
+for workout planning and training analysis, a versioned local SQLite schema, and the public seams
+for a local Ollama runtime.
 
 Development-agent instructions and Codex skills guide repository work. They are separate from the
 application's runtime coaching skills in `coach_skills/`, which guide the local coach while it is
@@ -44,7 +45,8 @@ model or available memory requires a different bounded value. Each model respons
 1,200 tokens; override the bound with `OLLAMA_NUM_PREDICT`.
 
 `ask` reads up to 50 recent cycling summaries from the local database, computes metrics in Python,
-loads the coaching skill on demand, and returns a validated workout recommendation as JSON. Use
+loads the relevant planning or analysis skill on demand, and returns a validated workout
+recommendation as JSON. Use
 `--limit` to request a smaller history. Missing power, distance, elevation, intensity category, and
 perceived exertion remain unavailable rather than being inferred. The command sends data only to
 the configured local Ollama endpoint and never changes the database or a workout plan.

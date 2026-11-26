@@ -59,8 +59,10 @@ remain planned.
 - `llm/context.py`, `llm/protocol.py`, and `llm/runtime.py` separately own evidence assembly,
   validated tool/message handling, and the bounded `AgentRuntime` loop. `llm/errors.py` defines the
   safely reportable failure boundary.
-- `coach_skills/plan-workout/SKILL.md` follows the Agent Skills directory and frontmatter rules. At
-  discovery time only `name` and `description` should be loaded; instructions are loaded on demand.
+- `coach_skills/plan-workout/SKILL.md` and `coach_skills/analyze-training/SKILL.md` follow the Agent
+  Skills directory and frontmatter rules. The first guides next-workout requests; the second keeps
+  observed facts, interpretations, and unavailable training evidence distinct. At discovery time
+  only `name` and `description` are loaded; instructions are loaded on demand.
 - `cli.py` exposes the database operations and `ask`, which passes bounded recent local activity
   summaries to `AgentRuntime` and prints only a validated recommendation or safe error.
 

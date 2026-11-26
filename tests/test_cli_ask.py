@@ -68,5 +68,5 @@ def test_ask_uses_recent_database_activities_and_prints_validated_json(
         "limit": 50,
         "model": "qwen3:8b",
         "request": question,
-        "skills": ["plan-workout"],
+        "skills": ["analyze-training", "plan-workout"],
     }

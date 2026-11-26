@@ -15,6 +15,14 @@ def test_skill_discovery_returns_metadata_only():
 
     assert skills == [
         SkillMetadata(
+            name="analyze-training",
+            description=(
+                "Analyzes recent cycling training from supplied deterministic metrics and "
+                "dated activities. Use when a cyclist asks about training patterns, load, "
+                "consistency, progress, or what the evidence suggests."
+            ),
+        ),
+        SkillMetadata(
             name="plan-workout",
             description=(
                 "Plans one safe cycling workout from recent training activities and current "
@@ -34,6 +42,20 @@ def test_skill_is_loaded_progressively_only_when_requested():
     assert isinstance(skill, LoadedSkill)
     assert skill.name == "plan-workout"
     assert "## Process" in skill.instructions
+
+
+def test_analyze_training_skill_preserves_evidence_boundaries():
+    loader = SkillLoader(skills_directory="coach_skills")
+
+    skill = loader.load_skill("analyze-training")
+
+    assert skill.name == "analyze-training"
+    assert "deterministic metric tools" in skill.instructions
+    assert "Observed:" in skill.instructions
+    assert "Interpreted:" in skill.instructions
+    assert "Unavailable:" in skill.instructions
+    assert "Do not convert missing values into zero" in skill.instructions
+    assert "source_skill` to `analyze-training`" in skill.instructions
 
 
 def test_missing_skill_has_a_clear_error():
