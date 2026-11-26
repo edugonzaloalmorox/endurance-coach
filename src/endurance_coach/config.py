@@ -120,6 +120,7 @@ class CorosSettings(BaseModel):
     endpoint: str = Field(default="https://mcp.coros.com/mcp")
     oauth_state_path: Path = Field(default=Path("data/coros_oauth.json"))
     redirect_uri: str = Field(default="http://127.0.0.1:8765/callback")
+    callback_timeout_seconds: float = Field(default=300.0, gt=0, le=900)
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     max_response_bytes: int = Field(default=256 * 1024, ge=1024, le=1024 * 1024)
 

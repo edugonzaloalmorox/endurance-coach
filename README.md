@@ -77,8 +77,8 @@ is written back.
 
 The optional COROS integration uses the official single-user MCP service for supplementary health
 and recovery observations. Run `uv run endurance-coach coros discover` for the initial OAuth flow:
-open the printed COROS URL, authorize the application, and paste the browser's final local redirect
-URL into the terminal. OAuth state is stored locally in the ignored
+the command opens COROS in your browser and receives the authorization response on a temporary
+loopback listener. OAuth state is stored locally in the ignored
 `data/coros_oauth.json` file with owner-only permissions; override its location with
 `COROS_OAUTH_STATE_PATH`. European, US, and mainland-China accounts can set `COROS_MCP_URL` to the
 corresponding official regional endpoint.

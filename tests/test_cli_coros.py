@@ -30,6 +30,7 @@ def test_coros_discover_prints_only_safe_tool_metadata(monkeypatch, capsys) -> N
 
 def test_coros_recovery_passes_bounded_days_and_prints_snapshot(monkeypatch, capsys) -> None:
     observed = {}
+    monkeypatch.setenv("COROS_MCP_URL", "https://mcp.coros.com/mcp")
 
     class FakeClient:
         def __init__(self, settings) -> None:

@@ -15,6 +15,7 @@ from endurance_coach.integrations.coros import (
     CorosClient,
     CorosError,
     FileTokenStorage,
+    _authorization_result,
 )
 
 
@@ -163,3 +164,27 @@ def test_file_token_storage_rejects_symlink(tmp_path: Path) -> None:
 
     with pytest.raises(CorosError, match="unsafe"):
         asyncio.run(FileTokenStorage(link).get_tokens())
+
+
+def test_oauth_callback_parser_preserves_security_values() -> None:
+    result = _authorization_result(
+        "/callback?code=synthetic-code&state=synthetic-state&iss=https%3A%2F%2Fauth.example"
+    )
+
+    assert result.code == "synthetic-code"
+    assert result.state == "synthetic-state"
+    assert result.iss == "https://auth.example"
+
+
+@pytest.mark.parametrize(
+    "callback",
+    [
+        "/callback?state=synthetic-state",
+        "/callback?code=synthetic-code",
+        "/callback?code=one&code=two&state=synthetic-state",
+        "/callback?code=synthetic-code&state=one&state=two",
+    ],
+)
+def test_oauth_callback_parser_rejects_missing_or_ambiguous_values(callback) -> None:
+    with pytest.raises(CorosError, match="missing required values"):
+        _authorization_result(callback)

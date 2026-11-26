@@ -7,8 +7,11 @@ import json
 import os
 import secrets
 import sys
+import time
+import webbrowser
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
@@ -59,6 +62,13 @@ _RECOVERY_QUERIES: tuple[tuple[str, Callable[[int], dict[str, int]]], ...] = (
 )
 _MAX_TOOL_PAGES = 10
 _MAX_TOOLS = 200
+
+
+class _LoopbackHTTPServer(ThreadingHTTPServer):
+    """Short-lived callback server that can be restarted without stale sockets."""
+
+    allow_reuse_address = True
+    daemon_threads = True
 
 
 class CorosError(RuntimeError):
@@ -183,26 +193,103 @@ class FileTokenStorage:
                 temporary.unlink(missing_ok=True)
 
 
-async def _show_authorization_url(url: str) -> None:
-    """Display an OAuth URL without attempting to launch a GUI."""
-    print("Open this COROS authorization URL in a browser:", file=sys.stderr)
-    print(url, file=sys.stderr)
-
-
-async def _read_callback_url() -> AuthorizationCodeResult:
-    """Read and validate the browser's local redirect URL."""
-    redirected = input("Paste the final browser redirect URL: ").strip()
-    query = parse_qs(urlparse(redirected).query)
+def _authorization_result(callback_path: str) -> AuthorizationCodeResult:
+    """Parse the query from one loopback OAuth callback request target."""
+    query = parse_qs(urlparse(callback_path).query)
     code = query.get("code", [])
     state = query.get("state", [])
-    if len(code) != 1 or len(state) != 1:
-        raise CorosError("COROS authorization callback is missing required values")
     issuer = query.get("iss", [])
+    if len(code) != 1 or len(state) != 1 or len(issuer) > 1:
+        raise CorosError("COROS authorization callback is missing required values")
     return AuthorizationCodeResult(
         code=code[0],
         state=state[0],
-        iss=issuer[0] if len(issuer) == 1 else None,
+        iss=issuer[0] if issuer else None,
     )
+
+
+class _OAuthCallbackReceiver:
+    """Receive one OAuth redirect on a temporary loopback HTTP server."""
+
+    def __init__(self, redirect_uri: str, timeout_seconds: float) -> None:
+        parsed = urlparse(redirect_uri)
+        self._host = parsed.hostname or "127.0.0.1"
+        self._port = parsed.port or 8765
+        self._path = parsed.path
+        self._timeout_seconds = timeout_seconds
+        self._server: _LoopbackHTTPServer | None = None
+        self._result: AuthorizationCodeResult | None = None
+        self._error: CorosError | None = None
+
+    async def open_authorization(self, url: str) -> None:
+        """Start listening before opening the authorization page."""
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise CorosError("COROS returned an unsafe authorization URL")
+        try:
+            self._server = _LoopbackHTTPServer(
+                (self._host, self._port),
+                self._handler_type(),
+            )
+            self._server.timeout = 0.25
+        except OSError as exc:
+            raise CorosError("COROS OAuth callback port is unavailable") from exc
+
+        opened = await asyncio.to_thread(webbrowser.open, url, 1, True)
+        if not opened:
+            print("Open this COROS authorization URL in a browser:", file=sys.stderr)
+            print(url, file=sys.stderr)
+
+    async def wait_for_callback(self) -> AuthorizationCodeResult:
+        """Wait for one valid callback without blocking the event loop."""
+        if self._server is None:
+            raise CorosError("COROS OAuth callback listener was not started")
+        deadline = time.monotonic() + self._timeout_seconds
+        try:
+            while self._result is None and self._error is None:
+                if time.monotonic() >= deadline:
+                    raise CorosError("COROS authorization callback timed out")
+                await asyncio.to_thread(self._server.handle_request)
+        finally:
+            self._server.server_close()
+            self._server = None
+        if self._error is not None:
+            raise self._error
+        if self._result is None:
+            raise CorosError("COROS authorization callback was not received")
+        return self._result
+
+    def _handler_type(self) -> type[BaseHTTPRequestHandler]:
+        receiver = self
+
+        class CallbackHandler(BaseHTTPRequestHandler):
+            """Capture one loopback callback without logging its query string."""
+
+            def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
+                parsed = urlparse(self.path)
+                if parsed.path != receiver._path:
+                    self.send_error(404)
+                    return
+                try:
+                    receiver._result = _authorization_result(self.path)
+                    status = 200
+                    message = "COROS authorization completed. You may close this window."
+                except CorosError as exc:
+                    receiver._error = exc
+                    status = 400
+                    message = "COROS authorization failed. Return to the terminal."
+                body = message.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, _format: str, *args: Any) -> None:
+                """Suppress callback URLs because they contain authorization codes."""
+
+        return CallbackHandler
 
 
 class CorosClient:
@@ -213,10 +300,19 @@ class CorosClient:
         settings: CorosSettings,
         *,
         session_factory: _SessionFactory | None = None,
-        redirect_handler: _RedirectHandler = _show_authorization_url,
-        callback_handler: _CallbackHandler = _read_callback_url,
+        redirect_handler: _RedirectHandler | None = None,
+        callback_handler: _CallbackHandler | None = None,
     ) -> None:
         self._settings = settings
+        if (redirect_handler is None) != (callback_handler is None):
+            raise ValueError("COROS OAuth handlers must be supplied together")
+        if redirect_handler is None:
+            receiver = _OAuthCallbackReceiver(
+                settings.redirect_uri,
+                settings.callback_timeout_seconds,
+            )
+            redirect_handler = receiver.open_authorization
+            callback_handler = receiver.wait_for_callback
         self._redirect_handler = redirect_handler
         self._callback_handler = callback_handler
         self._session_factory = session_factory or self._oauth_session

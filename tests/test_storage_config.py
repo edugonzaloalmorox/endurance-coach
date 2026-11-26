@@ -32,7 +32,10 @@ def test_storage_settings_load_paths_without_accessing_them(monkeypatch, tmp_pat
     assert not archive.exists()
 
 
-def test_coros_settings_use_official_endpoint_and_ignored_local_state(monkeypatch) -> None:
+def test_coros_settings_use_official_endpoint_and_ignored_local_state(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("COROS_MCP_URL", raising=False)
     monkeypatch.delenv("COROS_OAUTH_STATE_PATH", raising=False)
 
