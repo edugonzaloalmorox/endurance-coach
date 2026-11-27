@@ -51,6 +51,11 @@ recommendation as JSON. Use
 perceived exertion remain unavailable rather than being inferred. The command sends data only to
 the configured local Ollama endpoint and never changes the database or a workout plan.
 
+The deterministic summary includes power-based TSS and session-RPE load. Each load measure reports
+its dated period, unit, usable and missing activity counts, source-system provenance, and whether
+coverage is complete, partial, or unavailable. Partial values cover only usable activities; an
+unsupported measure is `null`, never an invented zero.
+
 The database defaults to `data/endurance_coach.sqlite3`. Override it with
 `ENDURANCE_COACH_DB_PATH`. Set `ENDURANCE_COACH_ARCHIVE_PATH` or pass an archive path to
 `db import-fit`. The importer recursively reads FIT and FIT.GZ files without modifying them,

@@ -25,8 +25,10 @@ remain planned.
 
 - `domain/models.py` defines strict contracts for activities, progressive skill representations,
   workout steps, and recommendations. Unexpected keys are rejected at boundaries.
-- `analysis/metrics.py` contains deterministic, side-effect-free intensity factor, TSS, and summary
-  functions. Missing power stays visible rather than being guessed.
+- `analysis/metrics.py` contains deterministic, side-effect-free intensity factor, TSS,
+  session-RPE load, and summary functions. Load results retain their dated window, unit, usable and
+  missing sample counts, completeness, source-system provenance, and limitations. Unsupported load
+  remains null rather than being converted to zero.
 - `fixtures/synthetic.py` creates ten rides spanning 14 calendar days. The same records are
   committed in `data/synthetic_activities.json` for inspection and repeatable tests.
 - `storage/sqlite.py` owns the versioned schema, transactional initialization, foreign-key and data

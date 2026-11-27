@@ -15,8 +15,8 @@ cautious next-workout recommendation matching the required `WorkoutRecommendatio
 ## Process
 
 1. Identify the athlete's question and select only the evidence needed to answer it. Use the
-   supplied `deterministic_training_summary` for aggregates and `recent_activities` for dated
-   session facts.
+   supplied `deterministic_training_summary` for aggregates, its `training_load` report for load
+   measures and coverage, and `recent_activities` for dated session facts.
 2. If the runtime advertises deterministic metric tools, call only the minimum relevant tools and
    use their returned values. Never calculate totals, trends, training stress, intensity, or other
    metrics in the model. Do not call or invent a tool that the runtime has not advertised.
@@ -37,6 +37,8 @@ cautious next-workout recommendation matching the required `WorkoutRecommendatio
 
 - Every numerical claim must reproduce a supplied deterministic value; retain its unit and dated
   window or activity date.
+- Treat a partial load value as the sum of its usable samples, not as the complete load for the
+  period. Repeat its sample size, missing-activity count, and limitation when citing it.
 - Every evidence item must name its actual source, such as `deterministic_training_summary`,
   `recent_activities`, or a named deterministic tool result.
 - Do not convert missing values into zero. A total over available values does not prove that the
