@@ -5,6 +5,7 @@ from endurance_coach.integrations.coros import (
     CorosDiscovery,
     CorosError,
     CorosRecoverySnapshot,
+    normalize_coros_wellness,
 )
 from endurance_coach.integrations.intervals import (
     IntervalsActivity,
@@ -19,6 +20,7 @@ __all__ = [
     "CorosDiscovery",
     "CorosError",
     "CorosRecoverySnapshot",
+    "normalize_coros_wellness",
     "IntervalsActivity",
     "IntervalsClient",
     "IntervalsError",

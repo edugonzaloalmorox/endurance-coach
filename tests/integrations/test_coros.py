@@ -14,8 +14,10 @@ from endurance_coach.config import CorosSettings
 from endurance_coach.integrations.coros import (
     CorosClient,
     CorosError,
+    CorosRecoverySnapshot,
     FileTokenStorage,
     _authorization_result,
+    normalize_coros_wellness,
 )
 
 
@@ -130,6 +132,69 @@ def test_recovery_snapshot_rejects_non_text_and_oversized_results() -> None:
 
     with pytest.raises(CorosError, match="response limit exceeded"):
         client_with_session(session, max_response_bytes=1024).recovery_snapshot()
+
+
+def test_normalize_wellness_preserves_dates_units_and_missing_signals() -> None:
+    snapshot = CorosRecoverySnapshot(
+        days=2,
+        observations={
+            "querySleepOverview": json.dumps(
+                """Sleep Overview
+2026-11-26
+Daily Sleep: 7h 30min (incl. naps)
+2026-11-27
+Sleep detail for this day is not available yet."""
+            ),
+            "querySleepHrv": json.dumps(
+                """Sleep HRV
+2026-11-26:
+  HRV Avg: 42 ms — Normal
+2026-11-27:
+  HRV Avg: 39 ms — Normal"""
+            ),
+            "queryRestingHeartRate": json.dumps(
+                """Resting Heart Rate
+2026-11-26: 48 bpm
+2026-11-27: 49 bpm"""
+            ),
+        },
+        unavailable_tools=(),
+    )
+
+    observations = normalize_coros_wellness(snapshot)
+
+    assert [item.date.isoformat() for item in observations] == [
+        "2026-11-26",
+        "2026-11-27",
+    ]
+    assert observations[0].model_dump(mode="json") == {
+        "date": "2026-11-26",
+        "source": "coros",
+        "resting_heart_rate_bpm": 48.0,
+        "hrv_ms": 42.0,
+        "sleep_seconds": 27_000,
+    }
+    assert observations[1].sleep_seconds is None
+    assert observations[1].hrv_ms == 39
+
+
+def test_normalize_wellness_rejects_conflicting_daily_values() -> None:
+    snapshot = CorosRecoverySnapshot(
+        days=1,
+        observations={
+            "querySleepHrv": json.dumps(
+                """Sleep HRV
+2026-11-27:
+  HRV Avg: 40 ms — Normal
+2026-11-27:
+  HRV Avg: 41 ms — Normal"""
+            )
+        },
+        unavailable_tools=(),
+    )
+
+    with pytest.raises(CorosError, match="conflicting hrv_ms"):
+        normalize_coros_wellness(snapshot)
 
 
 def test_file_token_storage_round_trips_private_oauth_state(tmp_path: Path) -> None:

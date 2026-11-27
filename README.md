@@ -33,6 +33,7 @@ uv run endurance-coach db sync-intervals --oldest 2026-01-01
 make update-db
 uv run endurance-coach coros discover
 uv run endurance-coach coros recovery --days 7
+uv run endurance-coach coros sync-wellness
 uv run endurance-coach ask "Based on my last workouts, what should I focus next"
 uv run endurance-coach metrics --ftp 250
 ```
@@ -94,7 +95,14 @@ corresponding official regional endpoint.
 blocked. `coros recovery --days 7` retrieves bounded sleep, HRV, resting-heart-rate, stress,
 recovery-status, and training-load observations when those tools are available. The client never
 calls COROS workout or training-plan creation/update tools, never downloads GPS-bearing FIT files,
-and does not yet feed the recovery snapshot into `ask` automatically.
+and does not yet feed wellness observations into `ask` automatically.
+
+`coros sync-wellness` normalizes daily sleep duration (including naps), sleep HRV, and resting heart
+rate into the local `wellness` table. The first run requests 30 days; later runs resume from the
+successful cursor with a two-day overlap. Use `--days 1..30` to force a bounded lookback. Each batch
+and its cursor are committed atomically, overlap retries update existing `(date, source)` rows, and
+temporarily missing values never replace measurements already stored. Command output contains only
+aggregate counts, not health values.
 
 Run `make update-db` at the start of each fresh local session to update the database through today.
 For a brand-new database, bootstrap it once with

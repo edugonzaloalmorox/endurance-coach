@@ -19,7 +19,8 @@ retrieval, normalization, incremental persistence, and conservative reconciliati
 FIT/Strava activities are implemented. Recent persisted cycling summaries feed the local coaching
 runtime. A read-only COROS MCP boundary now supports OAuth-aware tool discovery and bounded recovery
 snapshot retrieval; deterministic normalization and automatic coaching-context supplementation
-remain planned.
+are now split: sleep, sleep-HRV, and resting-heart-rate normalization and persistence are
+implemented, while automatic coaching-context supplementation remains planned.
 
 ## Components
 
@@ -45,11 +46,15 @@ remain planned.
   windows while preserving missing fields and source identity.
 - `integrations/coros.py` uses the official MCP SDK for OAuth and Streamable HTTP, persists tokens
   in an ignored owner-only local file, discovers tools through a strict read allowlist, and retrieves
-  bounded raw recovery observations without exposing COROS write or FIT-download operations.
+  bounded raw recovery observations without exposing COROS write or FIT-download operations. It
+  normalizes provider wake-date sleep totals, daily sleep-HRV averages, and resting heart rate into
+  a provider-neutral daily contract without manufacturing absent signals.
 - `services/historical_import.py` coordinates independent file imports, dry-run validation, safe
   failure recording, and aggregate reporting without exposing archive paths or measurements.
 - `services/intervals_sync.py` applies overlap windows and advances sync state only in the same
   transaction as a successful idempotent activity batch.
+- `services/coros_wellness_sync.py` applies a two-day retry overlap, requests at most 30 days, and
+  advances the COROS wellness cursor only with an atomic idempotent wellness batch.
 - `domain/reconciliation.py` selects only unique exact-identity or compatible time-and-duration
   matches. Intervals.icu becomes the canonical summary while FIT measurements and source provenance
   remain attached; ambiguous candidates stay separate.
@@ -76,6 +81,11 @@ Schema version 1 contains exactly seven product tables: `activities`, `activity_
 artifact without manufacturing an activity. Time-series measurements are nullable and retain a
 session and record index; ingestion will preserve the source sampling frequency rather than
 resampling at this boundary.
+
+Daily COROS wellness uses `(date, source)` identity. Sleep is total daily sleep including naps and
+is dated by wake-up day; HRV is the provider's daily sleep average. Overlap upserts retain an
+existing measurement whenever a retry omits that signal. A row is complete only when sleep, HRV,
+and resting heart rate are all present.
 
 The schema distinguishes measured, estimated, derived, and unavailable metric origins. Effective
 dates on athlete profiles support later selection of historically valid FTP and weight. Database

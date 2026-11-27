@@ -11,6 +11,7 @@ from pathlib import Path
 from endurance_coach.domain import (
     ActivityMatchCandidate,
     ImportedActivity,
+    WellnessObservation,
     select_activity_match,
 )
 from endurance_coach.domain.models import ActivitySource, TrainingActivity
@@ -265,6 +266,14 @@ class IntervalsWriteResult:
     inserted: int
     updated: int
     reconciled: int
+
+
+@dataclass(frozen=True)
+class WellnessWriteResult:
+    """Aggregate outcome of one atomic daily wellness persistence batch."""
+
+    inserted: int
+    updated: int
 
 
 @dataclass(frozen=True)
@@ -837,6 +846,54 @@ def mark_intervals_sync_failed(path: Path, error_code: str) -> None:
     _set_intervals_sync_status(path, "failed", error_code)
 
 
+def get_coros_wellness_sync_state(path: Path) -> SyncState:
+    """Read the COROS wellness cursor without changing database state."""
+    try:
+        with _connect(path) as connection:
+            row = connection.execute(
+                """SELECT last_activity_date, overlap_days
+                   FROM sync_state WHERE source = 'coros_wellness'"""
+            ).fetchone()
+        if row is None:
+            return SyncState(last_activity_date=None, overlap_days=2)
+        return SyncState(
+            last_activity_date=date.fromisoformat(row[0]) if row[0] else None,
+            overlap_days=int(row[1]),
+        )
+    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
+        raise StorageError("COROS wellness sync state inspection failed") from exc
+
+
+def mark_coros_wellness_sync_running(path: Path) -> None:
+    """Record a COROS wellness attempt without advancing its cursor."""
+    _set_coros_wellness_sync_status(path, "running", None)
+
+
+def mark_coros_wellness_sync_failed(path: Path, error_code: str) -> None:
+    """Record a safe COROS wellness failure without advancing its cursor."""
+    _set_coros_wellness_sync_status(path, "failed", error_code)
+
+
+def _set_coros_wellness_sync_status(
+    path: Path, status: str, error_code: str | None
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    try:
+        with _connect(path) as connection:
+            connection.execute(
+                """INSERT INTO sync_state (
+                       source, overlap_days, status, last_error_code, updated_at
+                   ) VALUES ('coros_wellness', 2, ?, ?, ?)
+                   ON CONFLICT(source) DO UPDATE SET
+                       status = excluded.status,
+                       last_error_code = excluded.last_error_code,
+                       updated_at = excluded.updated_at""",
+                (status, error_code, now),
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("COROS wellness sync state update failed") from exc
+
+
 def _set_intervals_sync_status(path: Path, status: str, error_code: str | None) -> None:
     now = datetime.now(UTC).isoformat()
     try:
@@ -1147,3 +1204,102 @@ def store_intervals_activities(
         )
     except (OSError, sqlite3.Error) as exc:
         raise StorageError("Intervals.icu persistence failed") from exc
+
+
+def store_coros_wellness(
+    path: Path,
+    observations: tuple[WellnessObservation, ...],
+    *,
+    synced_through: date,
+) -> WellnessWriteResult:
+    """Upsert COROS wellness rows and advance the cursor atomically.
+
+    Null values never replace an already measured signal, which makes overlap
+    retries safe when one provider response is temporarily incomplete.
+    """
+    now = datetime.now(UTC).isoformat()
+    inserted = updated = 0
+    try:
+        with _connect(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for observation in observations:
+                existing = connection.execute(
+                    "SELECT 1 FROM wellness WHERE date = ? AND source = ?",
+                    (observation.date.isoformat(), observation.source),
+                ).fetchone()
+                quality = (
+                    "complete"
+                    if all(
+                        value is not None
+                        for value in (
+                            observation.resting_heart_rate_bpm,
+                            observation.hrv_ms,
+                            observation.sleep_seconds,
+                        )
+                    )
+                    else "partial"
+                )
+                connection.execute(
+                    """INSERT INTO wellness (
+                           date, source, resting_heart_rate_bpm, hrv_ms,
+                           sleep_seconds, quality_status, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(date, source) DO UPDATE SET
+                           resting_heart_rate_bpm = COALESCE(
+                               excluded.resting_heart_rate_bpm,
+                               wellness.resting_heart_rate_bpm
+                           ),
+                           hrv_ms = COALESCE(excluded.hrv_ms, wellness.hrv_ms),
+                           sleep_seconds = COALESCE(
+                               excluded.sleep_seconds, wellness.sleep_seconds
+                           ),
+                           quality_status = CASE
+                               WHEN COALESCE(
+                                   excluded.resting_heart_rate_bpm,
+                                   wellness.resting_heart_rate_bpm
+                               ) IS NOT NULL
+                                AND COALESCE(excluded.hrv_ms, wellness.hrv_ms) IS NOT NULL
+                                AND COALESCE(
+                                    excluded.sleep_seconds, wellness.sleep_seconds
+                                ) IS NOT NULL
+                               THEN 'complete'
+                               ELSE 'partial'
+                           END,
+                           updated_at = excluded.updated_at""",
+                    (
+                        observation.date.isoformat(),
+                        observation.source,
+                        observation.resting_heart_rate_bpm,
+                        observation.hrv_ms,
+                        observation.sleep_seconds,
+                        quality,
+                        now,
+                    ),
+                )
+                if existing:
+                    updated += 1
+                else:
+                    inserted += 1
+            connection.execute(
+                """INSERT INTO sync_state (
+                       source, last_successful_at, last_activity_date,
+                       overlap_days, status, last_error_code, updated_at
+                   ) VALUES ('coros_wellness', ?, ?, 2, 'succeeded', NULL, ?)
+                   ON CONFLICT(source) DO UPDATE SET
+                       last_successful_at = excluded.last_successful_at,
+                       last_activity_date = MAX(
+                           COALESCE(
+                               sync_state.last_activity_date,
+                               excluded.last_activity_date
+                           ),
+                           excluded.last_activity_date
+                       ),
+                       status = excluded.status,
+                       last_error_code = NULL,
+                       updated_at = excluded.updated_at""",
+                (now, synced_through.isoformat(), now),
+            )
+            connection.commit()
+        return WellnessWriteResult(inserted=inserted, updated=updated)
+    except (OSError, sqlite3.Error) as exc:
+        raise StorageError("COROS wellness persistence failed") from exc

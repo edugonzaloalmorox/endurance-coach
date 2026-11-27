@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import sys
 import time
 import webbrowser
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,6 +26,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAu
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field, ValidationError
 
 from endurance_coach.config import CorosSettings
+from endurance_coach.domain import WellnessObservation
 
 # Verified against the official COROS MCP tool guide. Write and file-download operations are
 # deliberately absent. Additions require an explicit product and privacy review.
@@ -94,6 +97,113 @@ class CorosRecoverySnapshot(BaseModel):
     observations: dict[str, str]
     unavailable_tools: tuple[str, ...]
     source: str = "coros_mcp"
+
+
+_DATE_SECTION = re.compile(r"(?m)^(20\d{2}-\d{2}-\d{2}):?\s*$")
+_RESTING_HEART_RATE = re.compile(
+    r"(?m)^(20\d{2}-\d{2}-\d{2}):\s*(\d+(?:\.\d+)?)\s*bpm\s*$"
+)
+_DAILY_SLEEP = re.compile(r"Daily Sleep:\s*(?:(\d+)h\s*)?(\d+)min\b")
+_DAILY_HRV = re.compile(r"HRV Avg:\s*(\d+(?:\.\d+)?)\s*ms\b")
+
+
+def _decoded_coros_text(payload: str) -> str:
+    """Decode a provider JSON string while accepting an already plain response."""
+    stripped = payload.strip()
+    try:
+        decoded = json.loads(stripped)
+    except json.JSONDecodeError:
+        decoded = stripped
+    if not isinstance(decoded, str):
+        raise CorosError("COROS health response must be text")
+    return decoded.replace("\\n", "\n")
+
+
+def _dated_sections(payload: str) -> tuple[tuple[date, str], ...]:
+    """Split a bounded COROS report into wake-date sections."""
+    text = _decoded_coros_text(payload)
+    matches = list(_DATE_SECTION.finditer(text))
+    sections = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        try:
+            observed_on = date.fromisoformat(match.group(1))
+        except ValueError as exc:
+            raise CorosError("COROS health response contains an invalid date") from exc
+        sections.append((observed_on, text[match.end() : end]))
+    return tuple(sections)
+
+
+def _assign_signal(
+    rows: dict[date, dict[str, float | int | None]],
+    observed_on: date,
+    field: str,
+    value: float | int,
+) -> None:
+    row = rows.setdefault(
+        observed_on,
+        {"resting_heart_rate_bpm": None, "hrv_ms": None, "sleep_seconds": None},
+    )
+    existing = row[field]
+    if existing is not None and existing != value:
+        raise CorosError(f"COROS returned conflicting {field} values for one date")
+    row[field] = value
+
+
+def normalize_coros_wellness(
+    snapshot: CorosRecoverySnapshot,
+) -> tuple[WellnessObservation, ...]:
+    """Normalize supported COROS recovery text without inventing missing signals.
+
+    Daily sleep includes naps and is dated by wake-up day, matching the provider's
+    report. HRV uses the provider's daily sleep average rather than individual
+    time-series samples.
+    """
+    rows: dict[date, dict[str, float | int | None]] = {}
+
+    sleep_payload = snapshot.observations.get("querySleepOverview")
+    if sleep_payload is not None:
+        for observed_on, section in _dated_sections(sleep_payload):
+            match = _DAILY_SLEEP.search(section)
+            if match is not None:
+                hours = int(match.group(1) or 0)
+                minutes = int(match.group(2))
+                _assign_signal(
+                    rows,
+                    observed_on,
+                    "sleep_seconds",
+                    (hours * 60 + minutes) * 60,
+                )
+
+    hrv_payload = snapshot.observations.get("querySleepHrv")
+    if hrv_payload is not None:
+        for observed_on, section in _dated_sections(hrv_payload):
+            match = _DAILY_HRV.search(section)
+            if match is not None:
+                _assign_signal(rows, observed_on, "hrv_ms", float(match.group(1)))
+
+    resting_payload = snapshot.observations.get("queryRestingHeartRate")
+    if resting_payload is not None:
+        text = _decoded_coros_text(resting_payload)
+        for match in _RESTING_HEART_RATE.finditer(text):
+            try:
+                observed_on = date.fromisoformat(match.group(1))
+            except ValueError as exc:
+                raise CorosError("COROS health response contains an invalid date") from exc
+            _assign_signal(
+                rows,
+                observed_on,
+                "resting_heart_rate_bpm",
+                float(match.group(2)),
+            )
+
+    try:
+        return tuple(
+            WellnessObservation(date=observed_on, source="coros", **values)
+            for observed_on, values in sorted(rows.items())
+        )
+    except ValidationError as exc:
+        raise CorosError("COROS health response contains an invalid measurement") from exc
 
 
 class _McpSession(Protocol):

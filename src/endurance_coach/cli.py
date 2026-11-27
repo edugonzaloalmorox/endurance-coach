@@ -17,8 +17,10 @@ from endurance_coach.ingestion import FitIngestionError
 from endurance_coach.integrations import CorosClient, CorosError, IntervalsClient, IntervalsError
 from endurance_coach.llm import AgentRuntime, AgentRuntimeError
 from endurance_coach.services import (
+    CorosWellnessSyncError,
     IntervalsSyncError,
     import_fit_archive,
+    sync_coros_wellness,
     sync_intervals_activities,
 )
 from endurance_coach.skills import SkillLoader
@@ -80,6 +82,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=7,
         help="number of recent days, from 1 through 30 (default: 7)",
+    )
+    wellness_sync = coros_commands.add_parser(
+        "sync-wellness",
+        help="incrementally normalize and store sleep, HRV, and resting heart rate",
+    )
+    wellness_sync.add_argument(
+        "--days",
+        type=_positive_int,
+        help="explicit lookback from 1 through 30 days (default: incremental)",
     )
     database = subparsers.add_parser("db", help="manage the local training database")
     database_commands = database.add_subparsers(dest="database_command", required=True)
@@ -163,15 +174,25 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "coros":
         try:
             client = CorosClient(CorosSettings.from_env())
-            result = (
-                client.discover_tools()
-                if args.coros_command == "discover"
-                else client.recovery_snapshot(args.days)
-            )
-        except (CorosError, ValueError) as exc:
+            if args.coros_command == "discover":
+                result = client.discover_tools()
+            elif args.coros_command == "recovery":
+                result = client.recovery_snapshot(args.days)
+            else:
+                if args.days is not None and args.days > 30:
+                    raise ValueError("COROS wellness days must be between 1 and 30")
+                result = sync_coros_wellness(
+                    StorageSettings.from_env().database_path,
+                    client,
+                    days=args.days,
+                )
+        except (CorosError, CorosWellnessSyncError, StorageError, ValueError) as exc:
             print(json.dumps({"error": str(exc)}))
             return 2
-        print(result.model_dump_json(indent=2))
+        if hasattr(result, "model_dump_json"):
+            print(result.model_dump_json(indent=2))
+        else:
+            print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
     elif args.command == "ask":
         storage_settings = StorageSettings.from_env()
         ollama_settings = OllamaSettings.from_env()
